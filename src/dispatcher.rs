@@ -163,12 +163,10 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections) {
             } else {
                 i = instruction.current_position();
             }
-//            println!("i:{:#X}", i);
         } else {
             let mut regvm_instruction_reader = RegvmInstructionReader::new(&mapped_masm_sections.text, i);
             regvm_disassembler(&mut regvm_instruction_reader, &mut context, &mapped_masm_sections.data);
             i = regvm_instruction_reader.current_position();
-//            println!("i:{:#X}", i);
         }
     }
 }
