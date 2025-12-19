@@ -3,8 +3,10 @@
 mod dispatcher;
 mod stack_decoder;
 mod reg_decoder;
-mod symbex_vm;
-mod symbex_engine;
+
+use symbex::symbex_engine::SymVarVec;
+use symbex::symbex_vm::SymbolicContext;
+
 use dispatcher::dispatcher;
 use std::env;
 use std::fs;
@@ -21,6 +23,13 @@ fn main() {
 
     let filename = &args[1];
 
+    let mut emu = false;
+    if args.len() >= 3 {
+        if &args[2] == "emu"{
+            emu = true;
+        }
+    }
+
     // read in
     let masm_data: Vec<u8> = fs::read(filename).expect("Failed to read file");
     println!("Read in {} bytes from {}", masm_data.len(), filename);
@@ -29,7 +38,7 @@ fn main() {
     let mapped_masm_sections: MappedMasmSections = map_segments(&masm_data);
 
     // start disassembling
-    dispatcher(&mapped_masm_sections);
+    dispatcher(&mapped_masm_sections, emu);
 }
 
 struct SegmentEntry {

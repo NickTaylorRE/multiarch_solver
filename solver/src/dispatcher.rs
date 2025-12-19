@@ -2,8 +2,8 @@
 
 use crate::stack_decoder::stackvm_disassembler;
 use crate::reg_decoder::regvm_disassembler;
-use crate::symbex_vm::SymbolicContext;
-use crate::symbex_engine::SymVar;
+use symbex::symbex_vm::SymbolicContext;
+use symbex::symbex_engine::SymVar;
 use crate::MappedMasmSections;
 
 use std::env;
@@ -101,13 +101,13 @@ impl<'text> RegvmInstructionReader<'text> {
     }
 }
 
-pub fn dispatcher(mapped_masm_sections: &MappedMasmSections) {
+pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
     let mut i:usize = 0;
     // some instructions require a stack value. so we maintain a stack here
     let mut context = SymbolicContext::new();
     //while mapped_masm_sections.text[i] != 0 {
     while i < 0x164 { // > 0x170 there is no more code for our challenge program
-        println!("[DEBUG] A:{}, B:{}, C:{}, D:{}, E:{}, flags:{}, stack:{}", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack);
+        emu.then(|| println!("[DEBUG] A:{}, B:{}, C:{}, D:{}, E:{}, flags:{}, stack:{}", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack));
         // pc is always +0x1000 because it gets instantiated that way in the code
         let pc_arch: u8 = get_pc_arch(i+0x1000, &mapped_masm_sections.arch);
         if pc_arch == 0 {
@@ -116,7 +116,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections) {
                 operand: u32::from_le_bytes(mapped_masm_sections.text[i+1..i+5].try_into().expect("Failed to parse operand")),
                 position: i,
             };
-            stackvm_disassembler(&mut instruction, &mut context, &mapped_masm_sections.data);
+            stackvm_disassembler(&mut instruction, &mut context, &mapped_masm_sections.data, &emu);
             if instruction.current_position() == i {
                 i += 5 // default increment by 5
             } else {
@@ -124,7 +124,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections) {
             }
         } else {
             let mut regvm_instruction_reader = RegvmInstructionReader::new(&mapped_masm_sections.text, i);
-            regvm_disassembler(&mut regvm_instruction_reader, &mut context, &mapped_masm_sections.data);
+            regvm_disassembler(&mut regvm_instruction_reader, &mut context, &mapped_masm_sections.data, &emu);
             i = regvm_instruction_reader.current_position();
         }
     }

@@ -1,8 +1,8 @@
 #![allow(warnings)]
 
 use crate::dispatcher::StackvmInstruction;
-use crate::symbex_vm::SymbolicContext;
-use crate::symbex_engine::SymVarVec;
+use symbex::symbex_vm::SymbolicContext;
+use symbex::symbex_engine::SymVarVec;
 
 fn read_string(data: &Vec<u8>, loc: &usize, size: usize) -> String {
     let mut string: Vec<u8> = Vec::new();
@@ -15,7 +15,7 @@ fn read_string(data: &Vec<u8>, loc: &usize, size: usize) -> String {
 }
 
 
-pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut SymbolicContext, data_section: &Vec<u8>) {
+pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut SymbolicContext, data_section: &Vec<u8>, emu: &bool) {
     let mut mnemonic: String;
     let mut argument: String;
     let mut pc_update: usize = 5;
@@ -26,53 +26,47 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
         0x10 => {
             mnemonic = "S.LDB".to_string();
             argument = instruction.operand.to_string();
-            context.stack.push(SymVarVec::concrete_u32(instruction.operand));
+            emu.then(|| context.stack.pushp(SymVarVec::concrete_u8(instruction.operand as u8)));
         }
         0x20 => {
             mnemonic = "S.LDW".to_string();
             argument = instruction.operand.to_string();
-            context.stack.push(SymVarVec::concrete_u32(instruction.operand));
+            emu.then(|| context.stack.pushp(SymVarVec::concrete_u16(instruction.operand as u16)));
         }
         0x30 => {
             mnemonic = "S.PUSHP".to_string();
             argument = instruction.operand.to_string();
-            context.stack.push(SymVarVec::concrete_u32(instruction.operand));
+            emu.then(|| context.stack.pushp(SymVarVec::concrete_u32(instruction.operand)));
         }
         0x40 => {
             mnemonic = "S.LDP".to_string();
             argument = instruction.operand.to_string();
-            context.stack.push(SymVarVec::concrete_u32(instruction.operand));
+            emu.then(|| context.stack.pushp(SymVarVec::concrete_u32(instruction.operand)));
         }
         0x50 => {
             mnemonic = "S.POPP".to_string();
             argument = "".to_string();
-            let junk = context.stack.popp().expect("failed to pop from stack in S.POPP");
+            emu.then(|| context.stack.popp().expect("failed to pop from stack in S.POPP"));
         }
         0x60 => {
             mnemonic = "S.ADDP".to_string();
             argument = "".to_string();
-            context.addp();
+            emu.then(|| context.addp());
         }
         0x61 => {
             mnemonic = "S.SUBP".to_string();
-            let arg1 = &context.stack[context.stack.len()-1];
-            let arg2 = &context.stack[context.stack.len()-2];
-            argument = format!("{}, {}", arg1, arg2);
-            context.subp();
+            argument = "".to_string();
+            emu.then(|| context.subp());
         }
         0x62 => {
             mnemonic = "S.XORP".to_string();
-            let arg1 = &context.stack[context.stack.len()-1];
-            let arg2 = &context.stack[context.stack.len()-2];
-            argument = format!("{}, {}", arg1, arg2);
-            context.xorp();
+            argument = "".to_string();
+            emu.then(|| context.xorp());
         }
         0x63 => {
             mnemonic = "S.ANDP".to_string();
-            let arg1 = &context.stack[context.stack.len()-1];
-            let arg2 = &context.stack[context.stack.len()-2];
-            argument = format!("{}, {}", arg1, arg2);
-            context.andp();
+            argument = "".to_string();
+            emu.then(|| context.andp());
         }
         0x70 => {
             mnemonic = "S.JMP".to_string();
@@ -88,55 +82,56 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
             mnemonic = "S.JNE".to_string();
             argument = format!("{:#X}",(instruction.operand as usize - 0x1000));
             // TODO: at this point we should try to find a solution which satisfies this constraint
-            match context.flags.try_solve() {
+/*            match context.flags.try_solve_u32() {
                 Some(solution) => println!("solution: {}", solution),
                 None => println!("failed to solve")
-            }
+            }*/
         }
         0x80 => {
             mnemonic = "S.CMPP".to_string();
-            let arg1 = &context.stack[context.stack.len()-1];
-            let arg2 = &context.stack[context.stack.len()-2];
-            argument = format!("{}, {}", arg1, arg2);
-            context.cmpp();
+            argument = "".to_string();
+            emu.then(|| context.cmpp());
         }
         0xa0 => {
             mnemonic = "S.SYSCALL".to_string();
-            let syscall = context.stack.pop().expect("failed to pop syscall from stack in S.SYSCALL")
-                            .try_concrete().expect("failed to try_concrete for syscall");
-            match syscall {
-                0 => {
-                    // this is the only place that we actually create a symbolic variable
-                    context.stack.push(SymVar::symbolic("input".to_string()));
-                    argument = format!("fscanf");
-                },
-                1 => argument = "unsupported syscall".to_string(),
-                2 => {
-                    let param1_ptr = context.stack.pop().expect("failed to pop from stack in S.SYSCALL")
-                                        .try_concrete().expect("failed to try_concrete for param1 in syscall");
-                    let param2_len = context.stack.pop().expect("failed to pop from stack in S.SYSCALL")
-                                        .try_concrete().expect("failed to try_concrete for param1 in syscall");
-                    let mut string = "".to_string();
-                    if param1_ptr >= 0x2000 {
-                        string = read_string(data_section, 
-                            &(param1_ptr as usize - 0x2000),
-                            (param2_len as usize)
-                        );
-                    }
-                    argument = format!("fputs, {}", string);
-                },
-                3 => {
-                    let param1_seed = context.stack.pop().expect("failed to pop from stack in S.SYSCALL")
-                                        .try_concrete().expect("failed to try_concrete for param1_seed");
-                    // TODO: should we ACTUALLY seed rand and call rand? 
-                    argument = format!("srand, {}", param1_seed);
-                },
-                4 => {
-                    argument = "rand".to_string();
-                },
-                5 => argument = "flag_success".to_string(),
-                6 => argument = "split_register".to_string(),
-                _ => argument = "UNKNOWN".to_string(),
+            argument = "".to_string();
+            if *emu {
+                let syscall = context.stack.popb().expect("failed to pop syscall from stack in S.SYSCALL")
+                                .try_concrete_u8().expect("failed to try_concrete for syscall");
+                match syscall {
+                    0 => {
+                        // this is the only place that we actually create a symbolic variable
+                        context.stack.pushp(SymVarVec::symbolic_u32("input".to_string()));
+                        argument = format!("fscanf");
+                    },
+                    1 => argument = "unsupported syscall".to_string(),
+                    2 => {
+                        let param1_ptr = context.stack.popp().expect("failed to pop from stack in S.SYSCALL")
+                                            .try_concrete_u32().expect("failed to try_concrete for param1 in syscall");
+                        let param2_len = context.stack.popb().expect("failed to pop from stack in S.SYSCALL")
+                                            .try_concrete_u8().expect("failed to try_concrete for param1 in syscall");
+                        let mut string = "".to_string();
+                        if param1_ptr >= 0x2000 {
+                            string = read_string(data_section, 
+                                &(param1_ptr as usize - 0x2000),
+                                (param2_len as usize)
+                            );
+                        }
+                        argument = format!("fputs, {}", string);
+                    },
+                    3 => {
+                        let param1_seed = context.stack.popp().expect("failed to pop from stack in S.SYSCALL")
+                                            .try_concrete_u32().expect("failed to try_concrete for param1_seed");
+                        // TODO: should we ACTUALLY seed rand and call rand? 
+                        argument = format!("srand, {}", param1_seed);
+                    },
+                    4 => {
+                        argument = "rand".to_string();
+                    },
+                    5 => argument = "flag_success".to_string(),
+                    6 => argument = "split_register".to_string(),
+                    _ => argument = "UNKNOWN".to_string(),
+                }
             }
         }
         0xff => {
