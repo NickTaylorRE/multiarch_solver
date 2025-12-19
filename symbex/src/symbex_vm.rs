@@ -1,5 +1,6 @@
+#![allow(warnings)]
 
-use crate::symbex_engine::SymVar;
+//use crate::symbex_engine::SymVar;
 use crate::symbex_engine::SymVarVec;
 
 pub struct SymbolicContext {
@@ -58,16 +59,16 @@ impl SymbolicContext {
     // === STACK VM IMPLEMENTATIONS ===
     // S.PUSH
     pub fn push(&mut self, value: SymVarVec) {
-        self.stack.push(value);
+        self.stack.pushp(value);
     }
     // S.POP
     pub fn pop(&mut self) -> Option<SymVarVec> {
-        return self.stack.pop()
+        return self.stack.popp()
     }
     // S.ADDP
     pub fn addp(&mut self) {
         if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.add(b));
+            self.push(a.addp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
@@ -75,7 +76,7 @@ impl SymbolicContext {
     // S.SUBP
     pub fn subp(&mut self) {
         if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.sub(b));
+            self.push(a.subp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
@@ -83,7 +84,7 @@ impl SymbolicContext {
     // S.XORP
     pub fn xorp(&mut self) {
         if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.bitxor(b));
+            self.push(a.bitxorp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
@@ -91,7 +92,7 @@ impl SymbolicContext {
     // S.ANDP
     pub fn andp(&mut self) {
         if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.bitand(b));
+            self.push(a.bitandp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
@@ -99,7 +100,7 @@ impl SymbolicContext {
     // S.CMPP
     pub fn cmpp(&mut self) {
         if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.flags = SymVarVec::eq(a,b);
+            self.flags = SymVarVec::eqp(a,b);
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
@@ -111,7 +112,7 @@ impl SymbolicContext {
     pub fn add_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.set_reg(reg1, r1.add(r2));
+        self.set_reg(reg1, r1.addp(r2));
     }
     // R.ADD_IR
     pub fn add_ri(&mut self, reg: u8, imm: u32) {
@@ -122,44 +123,44 @@ impl SymbolicContext {
     pub fn sub_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.set_reg(reg1, r1.sub(r2));
+        self.set_reg(reg1, r1.subp(r2));
     }
     // R.SUB_IR
     pub fn sub_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.set_reg(reg, r.sub(SymVarVec::concrete_u32(imm)));
+        self.set_reg(reg, r.subp(SymVarVec::concrete_u32(imm)));
     }
     // R.XOR_RR
     pub fn xor_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.set_reg(reg1, r1.bitxor(r2));
+        self.set_reg(reg1, r1.bitxorp(r2));
     }
     // R.XOR_IR
     pub fn xor_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.set_reg(reg, r.bitxor(SymVarVec::concrete_u32(imm)));
+        self.set_reg(reg, r.bitxorp(SymVarVec::concrete_u32(imm)));
     }
     // R.MUL_RR
     pub fn mul_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.set_reg(reg1, r1.mul(r2));
+        self.set_reg(reg1, r1.mulp(r2));
     }
     // R.MUL_RI
     pub fn mul_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.set_reg(reg, r.mul(SymVarVec::concrete_u32(imm)));
+        self.set_reg(reg, r.mulp(SymVarVec::concrete_u32(imm)));
     }
     // R.CMP_RR
     pub fn cmp_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.flags = SymVarVec::eq(r1,r2);
+        self.flags = SymVarVec::eqp(r1,r2);
     }
     // R.CMP_RI
     pub fn cmp_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.flags = SymVarVec::eq(r,SymVarVec::concrete_u32(imm));
+        self.flags = SymVarVec::eqp(r,SymVarVec::concrete_u32(imm));
     }
 }

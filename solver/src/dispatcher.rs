@@ -1,7 +1,9 @@
 #![allow(warnings)]
 
-use crate::stackvm::stackvm_disassembler;
-use crate::regvm::regvm_disassembler;
+use crate::stack_decoder::stackvm_disassembler;
+use crate::reg_decoder::regvm_disassembler;
+use crate::symbex_vm::SymbolicContext;
+use crate::symbex_engine::SymVar;
 use crate::MappedMasmSections;
 
 use std::env;
@@ -99,56 +101,13 @@ impl<'text> RegvmInstructionReader<'text> {
     }
 }
 
-pub struct Context {
-    pub stack: Vec<u32>,
-    pub A: u32,
-    pub B: u32,
-    pub C: u32,
-    pub D: u32,
-}
-
-impl Context {
-    pub fn set_reg(&mut self, offset: u8, value: u32) {
-        match offset {
-            0x0 => self.A = value,
-            0x4 => self.B = value,
-            0x8 => self.C = value,
-            0xc => self.D = value,
-            _ => panic!("Invalid register offset: {:#x}", offset),
-        }
-    }
-    pub fn get_reg(&self, offset: u8) -> u32 {
-        match offset {
-            0x0 => self.A,
-            0x4 => self.B,
-            0x8 => self.C,
-            0xc => self.D,
-            _ => panic!("Invalid register offset: {:#x}", offset),
-        }
-    }
-    pub fn reg_name(&self, offset: u8) -> char {
-        match offset {
-            0x0 => 'A',
-            0x4 => 'B',
-            0x8 => 'C',
-            0xc => 'D',
-            _ => '?',
-        }
-    }
-}
-
 pub fn dispatcher(mapped_masm_sections: &MappedMasmSections) {
     let mut i:usize = 0;
     // some instructions require a stack value. so we maintain a stack here
-    let mut context = Context {
-        stack: Vec::new(),
-        A: 0,
-        B: 0,
-        C: 0,
-        D: 0,
-    };
+    let mut context = SymbolicContext::new();
     //while mapped_masm_sections.text[i] != 0 {
-    while i < 0x170 { // > 0x170 there is no more code for our challenge program
+    while i < 0x164 { // > 0x170 there is no more code for our challenge program
+        println!("[DEBUG] A:{}, B:{}, C:{}, D:{}, E:{}, flags:{}, stack:{}", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack);
         // pc is always +0x1000 because it gets instantiated that way in the code
         let pc_arch: u8 = get_pc_arch(i+0x1000, &mapped_masm_sections.arch);
         if pc_arch == 0 {

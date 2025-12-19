@@ -1,13 +1,610 @@
+#![allow(warnings)]
 // this is a symbolic exectuion engine for the VM
 
-// the original VM had
-// context 
-//     stack
-//     registers
-// math
-//
-// we need an abstraction that can hold a value or a symvar
-// this also meens we need a way represent a symvar
-// then we will need math functions that can handle a symvar or values
-//
-// 
+//use std::rc::Rc;
+use std::ops::{Add, Sub, Mul, BitXor, BitAnd, BitOr, Shl, Shr, Not, Deref, DerefMut};
+use std::fmt;
+
+use z3::ast::{Ast, BV};
+use z3::{Context, Solver, SatResult, Config};
+use std::collections::HashMap;
+
+
+// we build an AST for the symvar because its easy to convert to z3
+#[derive(Clone, Debug)]
+pub enum SymVar {
+    Concrete(u64),
+
+    Var(String),
+
+    Add(Box<SymVar>, Box<SymVar>),
+    Sub(Box<SymVar>, Box<SymVar>),
+    Mul(Box<SymVar>, Box<SymVar>),
+    And(Box<SymVar>, Box<SymVar>),
+    Or(Box<SymVar>, Box<SymVar>),
+    Xor(Box<SymVar>, Box<SymVar>),
+    Not(Box<SymVar>),
+
+    Shr(Box<SymVar>, Box<SymVar>),
+    Shl(Box<SymVar>, Box<SymVar>),
+
+    Eq(Box<SymVar>, Box<SymVar>),
+    Ne(Box<SymVar>, Box<SymVar>),
+    Lt(Box<SymVar>, Box<SymVar>),
+    Le(Box<SymVar>, Box<SymVar>),
+    Gt(Box<SymVar>, Box<SymVar>),
+    Ge(Box<SymVar>, Box<SymVar>),
+}
+
+impl SymVar {
+    pub fn concrete(val: u64) -> SymVar {
+        return SymVar::Concrete(val)
+    }
+    pub fn symbolic(name: String) -> SymVar {
+        return SymVar::Var(name)
+    }
+    // try_concrete tries to grab a concrete value if the SymVar is concrete
+    pub fn try_concrete(&self) -> Option<u64> {
+        match self {
+            SymVar::Concrete(v) => Some(*v),
+            _ => None,
+        }
+    }
+    // try_solve calls z3 to find a solution to the SymVars expression.
+    // it is expected that the top most expression is some form of Eq. otherwise there is no
+    // constraint to solve for.
+    pub fn try_solve(&self) -> Option<u64> {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+        let mut vars = HashMap::new();
+
+        let z3_expr = self.to_z3(&ctx, &mut vars);
+
+        match solver.check() {
+            SatResult::Sat => {
+                let model = solver.get_model().expect("failed to get model when z3 solved");
+                for (name, z3_var) in &vars {
+                    if let Some(val) = model.eval(z3_var, true) {
+                        let solution = val.as_u64().expect("failed to convert to u64");
+                        return Some(solution)
+                    }
+                }
+            }
+            SatResult::Unsat => {
+                println!("Z3 found unsat");
+                return None
+            }
+            SatResult::Unknown => {
+                println!("Z3 returned unknown");
+                return None
+            }
+        }
+        return None
+    }
+}
+
+impl SymVar {
+    pub fn add(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::Concrete(x.wrapping_add(*y));
+        }
+        return SymVar::Add(Box::new(self),Box::new(other))
+    }
+    pub fn sub(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x.wrapping_sub(*y));
+        }
+        return SymVar::Sub(Box::new(self),Box::new(other))
+    }
+    pub fn mul(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x.wrapping_mul(*y));
+        }
+        return SymVar::Mul(Box::new(self),Box::new(other))
+    }
+    pub fn bitxor(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x ^ y);
+        }
+        return SymVar::Xor(Box::new(self),Box::new(other))
+    }
+    pub fn bitand(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x & y);
+        }
+        return SymVar::And(Box::new(self),Box::new(other))
+    }
+    pub fn bitor(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x | y);
+        }
+        return SymVar::Or(Box::new(self),Box::new(other))
+    }
+    pub fn not(self) -> SymVar {
+        if let SymVar::Concrete(x) = &self {
+            return SymVar::concrete(!x);
+        }
+        return SymVar::Not(Box::new(self))
+    }
+    pub fn shl(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x << y);
+        }
+        return SymVar::Shl(Box::new(self),Box::new(other))
+    }
+    pub fn shr(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(x >> y);
+        }
+        return SymVar::Shr(Box::new(self),Box::new(other))
+    }
+    pub fn eq(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x == y { 1 } else { 0 });
+        }
+        return SymVar::Eq(Box::new(self),Box::new(other))
+    }
+    pub fn ne(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x != y { 1 } else { 0 });
+        }
+        return SymVar::Ne(Box::new(self),Box::new(other))
+    }
+    pub fn lt(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x < y { 1 } else { 0 });
+        }
+        return SymVar::Lt(Box::new(self),Box::new(other))
+    }
+    pub fn le(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x <= y { 1 } else { 0 });
+        }
+        return SymVar::Le(Box::new(self),Box::new(other))
+    }
+    pub fn gt(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x > y { 1 } else { 0 });
+        }
+        return SymVar::Gt(Box::new(self),Box::new(other))
+    }
+    pub fn ge(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            return SymVar::concrete(if x >= y { 1 } else { 0 });
+        }
+        return SymVar::Ge(Box::new(self),Box::new(other))
+    }
+}
+
+impl SymVar {
+    fn to_z3<'ctx>(&self, ctx: &'ctx Context, vars: &mut HashMap<String, BV<'ctx>>) -> BV<'ctx> {
+        match self {
+            SymVar::Concrete(val) => BV::from_u64(ctx, *val as u64, 32),
+
+            SymVar::Var(name) => {
+                vars.entry(name.clone())
+                    .or_insert_with(|| BV::new_const(ctx, name.as_str(), 32))
+                    .clone()
+            }
+            
+            SymVar::Add(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvadd(&b_z3)
+            }
+
+            SymVar::Sub(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvsub(&b_z3)
+            }
+
+            SymVar::Mul(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvmul(&b_z3)
+            }
+
+            SymVar::And(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvand(&b_z3)
+            }
+
+            SymVar::Or(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvor(&b_z3)
+            }
+
+            SymVar::Xor(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvxor(&b_z3)
+            }
+
+            SymVar::Not(a) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                a_z3.bvnot()
+            }
+
+            SymVar::Shl(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvshl(&b_z3)
+            }
+            
+            SymVar::Shr(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvlshr(&b_z3)
+            }
+            
+            SymVar::Eq(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3._eq(&b_z3).ite(
+                    &BV::from_u64(ctx, 1, 32),
+                    &BV::from_u64(ctx, 0, 32),
+                )
+            }
+
+            SymVar::Ne(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3._eq(&b_z3).ite(
+                    &BV::from_u64(ctx, 0, 32),
+                    &BV::from_u64(ctx, 1, 32),
+                )
+            }
+
+            SymVar::Lt(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvult(&b_z3).ite(
+                    &BV::from_u64(ctx, 1, 32),
+                    &BV::from_u64(ctx, 0, 32),
+                )
+            }
+
+            SymVar::Le(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvule(&b_z3).ite(
+                    &BV::from_u64(ctx, 1, 32),
+                    &BV::from_u64(ctx, 0, 32),
+                )
+            }
+
+            SymVar::Gt(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvugt(&b_z3).ite(
+                    &BV::from_u64(ctx, 1, 32),
+                    &BV::from_u64(ctx, 0, 32),
+                )
+            }
+
+            SymVar::Ge(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvuge(&b_z3).ite(
+                    &BV::from_u64(ctx, 1, 32),
+                    &BV::from_u64(ctx, 0, 32),
+                )
+            }
+        }
+    }
+}
+
+impl fmt::Display for SymVar {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SymVar::Concrete(val) => write!(f, "{}", val),
+            SymVar::Var(name) => write!(f, "{}", name),
+            SymVar::Add(a, b) => write!(f, "{} + {}", a, b),
+            SymVar::Sub(a, b) => write!(f, "{} - {}", a, b),
+            SymVar::Mul(a, b) => write!(f, "{} * {}", a, b),
+            SymVar::Xor(a, b) => write!(f, "{} ^ {}", a, b),
+            SymVar::And(a, b) => write!(f, "{} & {}", a, b),
+            SymVar::Or(a, b) => write!(f, "{} | {}", a, b),
+            SymVar::Shl(a, b) => write!(f, "{} << {}", a, b),
+            SymVar::Shr(a, b) => write!(f, "{} >> {}", a, b),
+            SymVar::Not(a) => write!(f, "!{}", a),
+            SymVar::Eq(a, b) => write!(f, "{} == {}", a, b),
+            SymVar::Ne(a, b) => write!(f, "{} != {}", a, b),
+            SymVar::Lt(a, b) => write!(f, "{} < {}", a, b),
+            SymVar::Le(a, b) => write!(f, "{} <= {}", a, b),
+            SymVar::Gt(a, b) => write!(f, "{} > {}", a, b),
+            SymVar::Ge(a, b) => write!(f, "{} >= {}", a, b),
+        }
+    }
+}
+
+
+// SymVarVec is a wrapper on SymVar which offers convenience functions on Vec<SymVar> objects.
+// this is all necessary because we have to handle u8, u16, and u32 data which means we need to
+// split up u16 and u32 data.
+#[derive(Clone)]
+pub struct SymVarVec(Vec<SymVar>);
+
+impl SymVarVec {
+    pub fn new() -> Self {
+        SymVarVec(Vec::new())
+    }
+    pub fn concrete_u32(val: u32) -> SymVarVec {
+        return SymVarVec(vec![
+            SymVar::Concrete((val >> 0x18).try_into().expect("u32 doesn't fit into u64")),
+            SymVar::Concrete((val >> 0x10).try_into().expect("u32 doesn't fit into u64")),
+            SymVar::Concrete((val >> 0x8).try_into().expect("u32 doesn't fit into u64")),
+            SymVar::Concrete(val.try_into().expect("u32 doesn't fit into u64")),
+        ])
+    }
+    pub fn concrete_u16(val: u16) -> SymVarVec {
+        return SymVarVec(vec![
+            SymVar::Concrete((val >> 0x8).try_into().expect("u16 doesn't fit into u64")),
+            SymVar::Concrete(val.into()),
+        ])
+    }
+    pub fn concrete_u8(val: u8) -> SymVarVec {
+        return SymVarVec(vec![SymVar::Concrete(val.into())])
+    }
+    pub fn symbolic_u32(name: String) -> SymVarVec {
+        return SymVarVec(vec![
+            SymVar::symbolic(format!("{}_b0",name)),
+            SymVar::symbolic(format!("{}_b1",name)),
+            SymVar::symbolic(format!("{}_b2",name)),
+            SymVar::symbolic(format!("{}_b3",name)),
+        ])
+    }
+    pub fn symbolic_u16(name: String) -> SymVarVec {
+        return SymVarVec(vec![
+            SymVar::symbolic(format!("{}_b0",name)),
+            SymVar::symbolic(format!("{}_b1",name)),
+        ])
+    }
+    pub fn symbolic_u8(name: String) -> SymVarVec {
+        return SymVarVec(vec![
+            SymVar::symbolic(format!("{}_b0",name))
+        ])
+    }
+    pub fn try_concrete_u32(&self) -> Option<u32> {
+        if self.len() < 4 {
+            return None
+        }
+        let b0 = self[0].try_concrete()? as u32;
+        let b1 = self[1].try_concrete()? as u32;
+        let b2 = self[2].try_concrete()? as u32;
+        let b3 = self[3].try_concrete()? as u32;
+        return Some((b0 << 0x18) | (b1 << 0x10) | (b2 << 0x8) | b3)
+    }
+    pub fn try_concrete_u16(&self) -> Option<u16> {
+        if self.len() < 2 {
+            return None
+        }
+        let b0 = self[0].try_concrete()? as u16;
+        let b1 = self[1].try_concrete()? as u16;
+        return Some((b0 << 0x8) | b1)
+    }
+    pub fn try_concrete_u8(&self) -> Option<u8> {
+        if self.len() < 1 {
+            return None
+        }
+        let b0 = self[0].try_concrete()? as u8;
+        return Some(b0)
+    }
+    pub fn try_solve_u32(&self) -> Option<u32> {
+        if self.len() < 4 {
+            return None
+        }
+        let b0 = self[0].try_solve()? as u32;
+        let b1 = self[1].try_solve()? as u32;
+        let b2 = self[2].try_solve()? as u32;
+        let b3 = self[3].try_solve()? as u32;
+        return Some((b0 << 0x18) | (b1 << 0x10) | (b2 << 0x8) | b3)
+    }
+    pub fn try_solve_u16(&self) -> Option<u16> {
+        if self.len() < 2 {
+            return None
+        }
+        let b0 = self[0].try_solve()? as u16;
+        let b1 = self[1].try_solve()? as u16;
+        return Some((b0 << 0x8) | b1)
+    } 
+    pub fn try_solve_u8(&self) -> Option<u8> {
+        if self.len() < 1 {
+            return None
+        }
+        let b0 = self[0].try_solve()? as u8;
+        return Some(b0)
+    } 
+}
+
+// these are the public interfaces for SymVarVec
+impl SymVarVec {
+    pub fn pushp(&mut self, other: SymVarVec) {
+        self.0.extend(other.0)
+    }
+    pub fn popp(&mut self) -> Option<SymVarVec> {
+        if self.0.len() < 4 {
+            return None;
+        }
+        let popped = self.0.split_off(self.0.len() - 4);
+        return Some(SymVarVec(popped))
+    }
+}
+
+impl SymVarVec {
+    pub fn addp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().add(other[0].clone()));
+        svv.push(self[1].clone().add(other[1].clone()));
+        svv.push(self[2].clone().add(other[2].clone()));
+        svv.push(self[3].clone().add(other[3].clone()));
+        return svv
+    }
+    pub fn subp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().sub(other[0].clone()));
+        svv.push(self[1].clone().sub(other[1].clone()));
+        svv.push(self[2].clone().sub(other[2].clone()));
+        svv.push(self[3].clone().sub(other[3].clone()));
+        return svv
+    }
+    pub fn mulp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().mul(other[0].clone()));
+        svv.push(self[1].clone().mul(other[1].clone()));
+        svv.push(self[2].clone().mul(other[2].clone()));
+        svv.push(self[3].clone().mul(other[3].clone()));
+        return svv
+    }
+    pub fn bitxorp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().bitxor(other[0].clone()));
+        svv.push(self[1].clone().bitxor(other[1].clone()));
+        svv.push(self[2].clone().bitxor(other[2].clone()));
+        svv.push(self[3].clone().bitxor(other[3].clone()));
+        return svv
+    }
+    pub fn bitandp(self, other: SymVarVec) -> SymVarVec {
+        if self.0.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().bitand(other[0].clone()));
+        svv.push(self[1].clone().bitand(other[1].clone()));
+        svv.push(self[2].clone().bitand(other[2].clone()));
+        svv.push(self[3].clone().bitand(other[3].clone()));
+        return svv
+    }
+    pub fn bitorp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().bitor(other[0].clone()));
+        svv.push(self[1].clone().bitor(other[1].clone()));
+        svv.push(self[2].clone().bitor(other[2].clone()));
+        svv.push(self[3].clone().bitor(other[3].clone()));
+        return svv
+    }
+    pub fn notp(self) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().not());
+        svv.push(self[1].clone().not());
+        svv.push(self[2].clone().not());
+        svv.push(self[3].clone().not());
+        return svv
+    }
+    pub fn eqp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().eq(other[0].clone()));
+        svv.push(self[1].clone().eq(other[1].clone()));
+        svv.push(self[2].clone().eq(other[2].clone()));
+        svv.push(self[3].clone().eq(other[3].clone()));
+        return svv
+    }
+    pub fn nep(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().ne(other[0].clone()));
+        svv.push(self[1].clone().ne(other[1].clone()));
+        svv.push(self[2].clone().ne(other[2].clone()));
+        svv.push(self[3].clone().ne(other[3].clone()));
+        return svv
+    }
+    pub fn ltp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().lt(other[0].clone()));
+        svv.push(self[1].clone().lt(other[1].clone()));
+        svv.push(self[2].clone().lt(other[2].clone()));
+        svv.push(self[3].clone().lt(other[3].clone()));
+        return svv
+    }
+    pub fn lep(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().le(other[0].clone()));
+        svv.push(self[1].clone().le(other[1].clone()));
+        svv.push(self[2].clone().le(other[2].clone()));
+        svv.push(self[3].clone().le(other[3].clone()));
+        return svv
+    }
+    pub fn gtp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().gt(other[0].clone()));
+        svv.push(self[1].clone().gt(other[1].clone()));
+        svv.push(self[2].clone().gt(other[2].clone()));
+        svv.push(self[3].clone().gt(other[3].clone()));
+        return svv
+    }
+    pub fn gep(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for add")
+        }
+        let mut svv = SymVarVec::new();
+        svv.push(self[0].clone().ge(other[0].clone()));
+        svv.push(self[1].clone().ge(other[1].clone()));
+        svv.push(self[2].clone().ge(other[2].clone()));
+        svv.push(self[3].clone().ge(other[3].clone()));
+        return svv
+    }
+}
+
+impl Deref for SymVarVec {
+    type Target = Vec<SymVar>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SymVarVec {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl fmt::Display for SymVarVec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SymVarVec(val) => {
+                let mut printvec: Vec<Vec<SymVar>> = Vec::new();
+                for entry in val.chunks(4) {
+                    printvec.push(entry.iter().cloned().collect());
+                }
+                write!(f, "{:?}", printvec)
+            }
+        }
+    }
+}
+

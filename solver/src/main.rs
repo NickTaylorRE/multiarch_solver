@@ -1,8 +1,10 @@
 #![allow(warnings)]
 
 mod dispatcher;
-mod stackvm;
-mod regvm;
+mod stack_decoder;
+mod reg_decoder;
+mod symbex_vm;
+mod symbex_engine;
 use dispatcher::dispatcher;
 use std::env;
 use std::fs;

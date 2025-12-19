@@ -1,0 +1,11 @@
+[package]                                                                                                                
+name = "symbex"                                                                                                          
+version = "0.1.0"                                                                                                        
+edition = "2021"                                                                                                         
+                                                                                                                           
+[lib]                                                                                                                    
+name = "symbex"                                                                                                          
+path = "src/lib.rs"
+
+[dependencies]
+z3 = { version = "0.12", features = ["static-link-z3"] }
