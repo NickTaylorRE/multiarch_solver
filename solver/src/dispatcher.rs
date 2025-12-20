@@ -106,8 +106,25 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
     // some instructions require a stack value. so we maintain a stack here
     let mut context = SymbolicContext::new();
     //while mapped_masm_sections.text[i] != 0 {
-    while i < 0x164 { // > 0x170 there is no more code for our challenge program
-        emu.then(|| println!("[DEBUG] A:{}, B:{}, C:{}, D:{}, E:{}, flags:{}, stack:{}", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack));
+    while i < 0x164 { // > 0x164 there is no more code for our challenge progra
+        if emu {
+            // this match statement gives us control to do things in the middle of exection.
+            match i {
+                0x55 => {
+                    if let Some(val) = context.flags.try_solve_u32() {
+                        println!("Solution found: {}({:#X})", val, val);
+                    }
+                },
+                0x13D => {
+                    return
+                }
+                _ => {}
+            }
+        }
+
+        if emu {
+            println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{} \nsp:{}\n", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack, context.sp);
+        }
         // pc is always +0x1000 because it gets instantiated that way in the code
         let pc_arch: u8 = get_pc_arch(i+0x1000, &mapped_masm_sections.arch);
         if pc_arch == 0 {

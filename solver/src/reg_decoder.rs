@@ -38,25 +38,39 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             // the first parameter is a register
             // the nibble * 4 is the index of the register in the context structure
             // VM: load value in emulated register to VM real variable
+            let reg_num1 = ((opcode & 7) << 2);
             if (modifier_nibble & 3) > 0 {
                 // bit 1 and 2 were set from modifier instruction
                 // VM: dereference value that was loaded into VM variable
+                // we cover this functionality in the instructions themselves
             }
             if (modifier_nibble >> 2) > 0 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
-                    mnemonic = "R.MOV.RR".to_string();
+                    mnemonic = "R.MOV.RRm".to_string();
                     let reg_num1 = ((opcode & 7) << 2);
                     let reg_num2 = (((opcode >> 3) & 7) << 2);
-                    argument = format!("reg1:{}, reg2:{}", context.reg_name(reg_num1), context.reg_name(reg_num2));
-                    emu.then(|| context.set_reg(reg_num2, context.get_reg(reg_num1)));
+                    argument = format!("reg2:{}, reg1:{}", context.reg_name(reg_num2), context.reg_name(reg_num1));
+                    if *emu {
+                        let mut reg1_value = context.get_reg(reg_num1);
+                        if (modifier_nibble & 3) > 0 {
+                            reg1_value = context.getp((reg1_value).try_concrete_u32().expect("could not concrete to u32 in modifier") as usize);
+                        }
+                        context.set_reg(reg_num2, reg1_value);
+                    }
                 } else {
                     // second parameter is an pointer
-                    mnemonic = "R.MOV.PR".to_string();
+                    mnemonic = "R.MOV.PRm".to_string();
                     let register = ((opcode & 7) << 2);
                     let pointer = regvm_instruction_reader.read_pointer();
                     argument = format!("reg:{}, ptr:{:#X}", context.reg_name(register), pointer);
-                    emu.then(|| context.stack.assign(pointer as usize, &context.get_reg(register)));
+                    if *emu { 
+                        let mut reg1_value = context.get_reg(reg_num1);
+                        if (modifier_nibble & 3) > 0 {
+                            reg1_value = context.getp((reg1_value).try_concrete_u32().expect("could not concrete to u32 in modifier") as usize);
+                        }
+                        context.stack.assign(pointer as usize, &reg1_value);
+                    }
                 }
             } else if ((opcode >> 3) & 4) == 0 {
                 // second parameter is register
@@ -64,8 +78,14 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 mnemonic = "R.MOV.RR".to_string();
                 let reg_num1 = ((opcode & 7) << 2);
                 let reg_num2 = (((opcode >> 3) & 7) << 2);
-                argument = format!("reg1:{}, reg2:{}", context.reg_name(reg_num1), context.reg_name(reg_num2));
-                emu.then(|| context.set_reg(reg_num2, context.get_reg(reg_num1)));
+                argument = format!("reg2:{}, reg1:{}", context.reg_name(reg_num2), context.reg_name(reg_num1));
+                if *emu {
+                    let mut reg1_value = context.get_reg(reg_num1);
+                    if (modifier_nibble & 3) > 0 {
+                        reg1_value = context.getp((reg1_value).try_concrete_u32().expect("could not concrete to u32 in modifier") as usize);
+                    }
+                    context.set_reg(reg_num2, reg1_value);
+                }
             }
         } else if opcode_nibble == 4 { //b0100
             // first parameter is a immediate pointer in the instruction to dereference
@@ -73,18 +93,18 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             if (modifier_nibble >> 2) > 0 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
-                    mnemonic = "R.MOV.RP".to_string();
+                    mnemonic = "R.MOV.RPm".to_string();
                     let pointer = regvm_instruction_reader.read_pointer();
                     let reg_num = (((opcode >> 3) & 7) << 2);
-                    argument = format!("ptr:{:#X}, reg:{}",pointer, context.reg_name(reg_num));
+                    argument = format!("reg:{}, ptr:{:#X}", context.reg_name(reg_num), pointer);
                     emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(pointer)));
                 } else {
                     // second parameter is an pointer
-                    mnemonic = "R.MOV.PP".to_string();
+                    mnemonic = "R.MOV.PPm".to_string();
                     let pointer1 = regvm_instruction_reader.read_pointer();
                     let pointer2 = regvm_instruction_reader.read_pointer();
                     argument = format!("ptr1:{:#X}, ptr2:{:#X}", pointer1, pointer2);
-                    emu.then(|| context.stack.assign(pointer2 as usize, &context.stack.getp(pointer1 as usize)));
+                    emu.then(|| context.stack.assign(pointer2 as usize, &context.getp(pointer1 as usize)));
                 }
             } else if ((opcode >> 3) & 4) == 0 {
                 // second parameter is register
@@ -92,7 +112,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 mnemonic = "R.MOV.RP".to_string();
                 let pointer = regvm_instruction_reader.read_pointer();
                 let reg_num = (((opcode >> 3) & 7) << 2);
-                argument = format!("ptr:{:#X}, reg:{}",pointer, context.reg_name(reg_num));
+                argument = format!("reg:{}, ptr:{:#X}", context.reg_name(reg_num), pointer);
                 emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(pointer)));
             }
         } else if opcode_nibble == 5 { //b0101
@@ -101,17 +121,17 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             if (modifier_nibble >> 2) > 0 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
-                    mnemonic = "R.MOV.RI".to_string();
+                    mnemonic = "R.MOV.RIm".to_string();
                     let immediate = regvm_instruction_reader.read_pointer();
                     let reg_num = (((opcode >> 3) & 7) << 2);
-                    argument = format!("imm:{:#X}, reg:{}", immediate, context.reg_name(reg_num));
+                    argument = format!("reg:{}, imm:{:#X}", context.reg_name(reg_num), immediate);
                     emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(immediate)));
                 } else {
                     // second parameter is an pointer
-                    mnemonic = "R.MOV.PI".to_string();
+                    mnemonic = "R.MOV.PIm".to_string();
                     let immediate = regvm_instruction_reader.read_pointer();
                     let pointer = regvm_instruction_reader.read_pointer();
-                    argument = format!("imm1:{:#X}, ptr2:{:#X}", immediate, pointer);
+                    argument = format!("ptr:{:#X}, imm:{:#X}", pointer, immediate);
                     emu.then(|| context.stack.assign(pointer as usize,&SymVarVec::concrete_u32(immediate)));
                 }
             } else if ((opcode >> 3) & 4) == 0 {
@@ -120,7 +140,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 mnemonic = "R.MOV.RI".to_string();
                 let immediate = regvm_instruction_reader.read_pointer();
                 let reg_num = (((opcode >> 3) & 7) << 2);
-                argument = format!("imm:{:#X}, reg:{}", immediate, context.reg_name(reg_num));
+                argument = format!("reg:{}, imm:{:#X}", context.reg_name(reg_num), immediate);
                 emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(immediate)));
             }
         } else if opcode_nibble == 6 { //b0110
@@ -128,6 +148,8 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             if (modifier_nibble & 3) > 0{
                 // bit 1 and 2 were set from modifier instruction
                 // VM: dereference value that was loaded into VM real variable
+                // NOTE: we would cover this in the instructions themselves, but i happen to know
+                // they're not used in this CTF so i'm just ignoring it
             }
             // in this VM, the only pointers(i think) are pointers to locations on the stack.
             // pointers to data section locations are loaded as immediates. 
@@ -137,18 +159,18 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             if (modifier_nibble >> 2) > 0 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
-                    mnemonic = "R.MOV.RS".to_string();
+                    mnemonic = "R.MOV.RSm".to_string();
                     let reg_num = (((opcode >> 3) & 7) << 2);
                     argument = format!("reg:{}", context.reg_name(reg_num));
-                    emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32((context.stack.len()-1)
-                                                .try_into().expect("failed to set the stack location"))));
+                    emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(context.sp as u32)
+                                                .try_into().expect("failed to set the stack location")));
                 } else {
                     // second parameter is an pointer
-                    mnemonic = "R.MOV.PS".to_string();
+                    mnemonic = "R.MOV.PSm".to_string();
                     let pointer = regvm_instruction_reader.read_pointer();
-                    argument = format!("op:{:#X}, ptr:{:#X}", opcode, pointer);
-                    emu.then(|| context.stack.assign(pointer as usize, &SymVarVec::concrete_u32((context.stack.len()-1)
-                                                        .try_into().expect("failed to set the stack location"))));
+                    argument = format!("ptr:{:#X}", pointer);
+                    emu.then(|| context.stack.assign(pointer as usize, &SymVarVec::concrete_u32(context.sp as u32)
+                                                        .try_into().expect("failed to set the stack location")));
                 }
             } else if ((opcode >> 3) & 4) == 0 {
                 // second parameter is register
@@ -156,21 +178,21 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 mnemonic = "R.MOV.RS".to_string();
                 let reg_num = (((opcode >> 3) & 7) << 2);
                 argument = format!("reg:{}", context.reg_name(reg_num));
-                emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32((context.stack.len()-1)
-                                            .try_into().expect("failed to set the stack location"))));
+                emu.then(|| context.set_reg(reg_num, SymVarVec::concrete_u32(context.sp as u32)
+                                            .try_into().expect("failed to set the stack location")));
             }
         }
     } else if (opcode - 0x11 <= 3) {
         mnemonic = "R.PUSH.R".to_string();
         let reg_num = (opcode - 0x11) << 2;
         argument = format!("reg:{}", context.reg_name(reg_num));
-        emu.then(|| context.stack.pushp(context.get_reg(reg_num)));
+        emu.then(|| context.pushp(context.get_reg(reg_num)));
     } else if (opcode - 0x15 <= 3) {
         mnemonic = "R.POP.R".to_string();
         let reg_num = (opcode - 0x15) << 2;
         argument = format!("reg:{}", context.reg_name(reg_num));
         if *emu {
-            let value = context.stack.popp().expect("failed to pop from context.stack");
+            let value = context.popp().expect("failed to pop from context.stack");
             context.set_reg(reg_num, value);
         }
     } else if (opcode >> 4) == 7 {
@@ -201,7 +223,21 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             }
             match syscall {
                 0 => argument = format!("fscanf({:#X}), {}", syscall, string),
-                1 => argument = format!("fgetc({:#X})", syscall),
+                1 => {
+                    if *emu {
+                        let input_pointer = context.B.try_concrete_u32().expect("failed to extract B in fgetc") as usize;
+                        let input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
+                        let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size-1);
+                        input.push(SymVarVec::concrete_u8(0)); // null terminator
+                        input.reverse();
+                        // i believe the actual vm writes the string backwards because the stack
+                        // grows down, which some may argue is backwards.
+                        // we do things forwards here. which means we start from the beginning of
+                        // the string.
+                        context.stack.assign(input_pointer - input_size, &input);
+                    }
+                    argument = format!("fgetc({:#X})", syscall)
+                },
                 2 => argument = format!("fputs({:#X}), {}", syscall, string),
                 3 => argument = format!("srand({:#X})",syscall),
                 4 => argument = format!("rand({:#X})",syscall),
@@ -214,7 +250,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         mnemonic = "R.PUSH.I".to_string();
         let immediate = regvm_instruction_reader.read_pointer();
         argument = immediate.to_string();
-        emu.then(|| context.stack.pushp(SymVarVec::concrete_u32(immediate)));
+        emu.then(|| context.pushp(SymVarVec::concrete_u32(immediate)));
     } else if (opcode == 0x20) {
         mnemonic = "R.ADD.RR".to_string();
         let reg_param = regvm_instruction_reader.read_byte();
@@ -241,17 +277,26 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         emu.then(|| context.sub_rr(register1, register2));
         argument = format!("reg1:{}, reg2:{}", context.reg_name(register1), context.reg_name(register2));
     } else if (opcode == 0x31) {
-        mnemonic = "R.SUB.RI".to_string();
         let reg_param = regvm_instruction_reader.read_byte();
         let immediate = regvm_instruction_reader.read_pointer();
-        let register = (((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb) - 0x3b;
-        emu.then(|| context.sub_ri(register,immediate));
-        argument = format!("reg:{}, imm:{:#X}", context.reg_name(register), immediate);
+        if ((reg_param >> 4) - 1) <= 3 {
+            mnemonic = "R.SUB.RI".to_string();
+            let register = (((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb) - 0x3b;
+            argument = format!("reg:{}, imm:{:#X}", context.reg_name(register), immediate);
+            emu.then(|| context.sub_ri(register,immediate));
+        } else {
+            mnemonic = "R.SUB.SI".to_string();
+            argument = format!("imm:{:#X}", immediate);
+            if *emu {
+                context.stack.assign(context.sp, &SymVarVec::concrete_n(immediate as usize)); // assign can grow if needed
+                context.sp += immediate as usize; // our stack grows backwards. so we do not sub, we add.
+            }
+        }
     } else if (opcode == 0x40) {
         mnemonic = "R.XOR.RR".to_string();
         let reg_param = regvm_instruction_reader.read_byte();
         let register1 = (((reg_param >> 4) - 1) << 2);
-        let register2 = (((((reg_param >> 4) - 1) & 0xf) -1) << 2);
+        let register2 = (((reg_param & 0xf) - 1) << 2);
         emu.then(|| context.xor_rr(register1, register2));
         argument = format!("reg1:{}, reg2:{}", context.reg_name(register1), context.reg_name(register2));
     } else if (opcode == 0x41) {
@@ -279,33 +324,50 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         mnemonic = "R.CALL".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        //regvm_instruction_reader.set_position(target as usize - 0x1000); //must sub 0x1000 because
-                                                                         //its base of text section
-        // update stack here
+        if *emu {
+            context.pushp(SymVarVec::concrete_u32(regvm_instruction_reader.position as u32));
+            regvm_instruction_reader.set_position(target as usize - 0x1000); 
+        }
     } else if (opcode == 0x61) {
         mnemonic = "R.RET".to_string();
-        // read from stack
+        if *emu {
+            let target = context.popp().expect("failed to pop off stack")
+                          .try_concrete_u32().expect("failed to pop u32 off stack");
+            regvm_instruction_reader.set_position(target as usize);
+        }
         argument = "".to_string();
     } else if (opcode == 0x62) {
         mnemonic = "R.JE".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        //regvm_instruction_reader.set_position(target as usize - 0x1000); //must sub 0x1000 because
+        if *emu {
+            if context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize == 1 {
+                regvm_instruction_reader.set_position(target as usize - 0x1000);
+            }
+        }
     } else if (opcode == 0x63) {
         mnemonic = "R.JNE".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        //regvm_instruction_reader.set_position(target as usize - 0x1000); //must sub 0x1000 because
+        if *emu {
+            if context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize == 0 {
+                regvm_instruction_reader.set_position(target as usize - 0x1000);
+            }
+        }
     } else if (opcode == 0x64) {
         mnemonic = "R.JEFLAGS2".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        //regvm_instruction_reader.set_position(target as usize - 0x1000); //must sub 0x1000 because
+        //regvm_instruction_reader.set_position(target as usize - 0x1000);
     } else if (opcode == 0x68) {
         mnemonic = "R.JMP".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        //regvm_instruction_reader.set_position(target as usize - 0x1000); //must sub 0x1000 because
+        emu.then(|| regvm_instruction_reader.set_position(target as usize - 0x1000));
+    }
+
+    if (modifier_nibble & 3) > 0 {
+        argument = format!("{} dereferenced",argument);
     }
 
     println!("{:#X}: {}({:#X}), {}", instruction_location, mnemonic, opcode, argument);

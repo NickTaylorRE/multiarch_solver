@@ -60,12 +60,13 @@ impl SymVar {
         let mut vars = HashMap::new();
 
         let z3_expr = self.to_z3(&ctx, &mut vars);
+        solver.assert(&z3_expr._eq(&BV::from_u64(&ctx, 1, 32)));
 
         match solver.check() {
             SatResult::Sat => {
                 let model = solver.get_model().expect("failed to get model when z3 solved");
                 for (name, z3_var) in &vars {
-                    if let Some(val) = model.eval(z3_var, true) {
+                    if let Some(val) = model.eval(z3_var,true) {
                         let solution = val.as_u64().expect("failed to convert to u64");
                         return Some(solution)
                     }
@@ -326,12 +327,22 @@ impl fmt::Display for SymVar {
 // SymVarVec is a wrapper on SymVar which offers convenience functions on Vec<SymVar> objects.
 // this is all necessary because we have to handle u8, u16, and u32 data which means we need to
 // split up u16 and u32 data.
+// our stack implementation is fucked for pointer arithmetic. so we track whether we have a pointer
+// or not and reverse the arithmetic accordingly.
 #[derive(Clone)]
 pub struct SymVarVec(Vec<SymVar>);
 
 impl SymVarVec {
-    pub fn new() -> Self {
-        SymVarVec(vec![SymVar::Concrete(0);4])
+    pub fn new(size: usize) -> Self {
+        SymVarVec(
+            vec![SymVar::Concrete(0);size]
+            )
+    }
+    pub fn concrete_n(n: usize) -> SymVarVec {
+        let tmp = SymVarVec((0..n)
+                    .map(|i| SymVar::concrete(0)).collect()
+                  );
+        return tmp
     }
     pub fn concrete_u32(val: u32) -> SymVarVec {
         return SymVarVec(vec![
@@ -349,6 +360,12 @@ impl SymVarVec {
     }
     pub fn concrete_u8(val: u8) -> SymVarVec {
         return SymVarVec(vec![SymVar::Concrete((val & 0xff).into())])
+    }
+    pub fn symbolic_n(name:String, n: usize) -> SymVarVec {
+        let tmp = SymVarVec((0..n)
+                    .map(|i| SymVar::symbolic(format!("{}_b{}", name, i))).collect()
+                  );
+        return tmp
     }
     pub fn symbolic_u32(name: String) -> SymVarVec {
         return SymVarVec(vec![
@@ -424,51 +441,32 @@ impl SymVarVec {
 // these are the public interfaces for SymVarVec
 // NOTE: push and pop should not be used outside SymVarVec. only the sized pushs and pops
 impl SymVarVec {
-    pub fn pushp(&mut self, other: SymVarVec) {
+    pub fn push(&mut self, other: SymVarVec) {
         self.0.extend(other.0)
     }
-    pub fn popp(&mut self) -> Option<SymVarVec> {
-        if self.0.len() < 4 {
+    pub fn pop(&mut self, len: usize) -> Option<SymVarVec> {
+        if self.0.len() < len {
             return None;
         }
-        let popped = self.0.split_off(self.0.len() - 4);
-        return Some(SymVarVec(popped))
-    }
-    pub fn popw(&mut self) -> Option<SymVarVec> {
-        if self.0.len() < 2 {
-            return None;
-        }
-        let popped = self.0.split_off(self.0.len() - 2);
-        return Some(SymVarVec(popped))
-    }
-    pub fn popb(&mut self) -> Option<SymVarVec> {
-        if self.0.len() < 1 {
-            return None;
-        }
-        let popped = self.0.split_off(self.0.len() - 1);
+        let popped = self.0.split_off(self.0.len() - len);
         return Some(SymVarVec(popped))
     }
     pub fn assign(&mut self, offset: usize, value: &SymVarVec) {
         for (i, sv) in value.0.iter().enumerate() {
-            if offset + 1 < self.0.len() {
-                self.0[offset + 1] = sv.clone();
+            if offset + i < self.0.len() {
+                self.0[offset + i] = sv.clone();
             } else {
                 self.0.push(sv.clone());
             }
         }
     }
     fn get_at(&self, offset: usize, count: usize) -> SymVarVec {
-        let slice = &self.0[offset..offset + count];
+        let slice = &self.0[offset-count..offset]; //when sp is positive
+        //let slice = &self.0[offset..offset+count];
         return SymVarVec(slice.to_vec())
     }
-    pub fn getp(&self, offset: usize) -> SymVarVec {
-        return self.get_at(offset, 4);
-    }
-    pub fn getw(&self, offset: usize) -> SymVarVec {
-        return self.get_at(offset, 2);
-    }
-    pub fn getb(&self, offset: usize) -> SymVarVec {
-        return self.get_at(offset, 1);
+    pub fn get(&self, offset: usize, len: usize) -> SymVarVec {
+        return self.get_at(offset, len);
     }
 }
 
@@ -477,7 +475,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for addp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().add(other[0].clone());
         svv[1] = self[1].clone().add(other[1].clone());
         svv[2] = self[2].clone().add(other[2].clone());
@@ -488,7 +486,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for subp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().sub(other[0].clone());
         svv[1] = self[1].clone().sub(other[1].clone());
         svv[2] = self[2].clone().sub(other[2].clone());
@@ -499,7 +497,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for mulp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().mul(other[0].clone());
         svv[1] = self[1].clone().mul(other[1].clone());
         svv[2] = self[2].clone().mul(other[2].clone());
@@ -510,7 +508,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for bitxorp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().bitxor(other[0].clone());
         svv[1] = self[1].clone().bitxor(other[1].clone());
         svv[2] = self[2].clone().bitxor(other[2].clone());
@@ -521,7 +519,7 @@ impl SymVarVec {
         if self.0.len() < 4 {
             panic!("SymVarVec is too short for bitandp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().bitand(other[0].clone());
         svv[1] = self[1].clone().bitand(other[1].clone());
         svv[2] = self[2].clone().bitand(other[2].clone());
@@ -532,7 +530,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for bitorp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().bitor(other[0].clone());
         svv[1] = self[1].clone().bitor(other[1].clone());
         svv[3] = self[2].clone().bitor(other[2].clone());
@@ -543,7 +541,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for notp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().not();
         svv[1] = self[1].clone().not();
         svv[2] = self[2].clone().not();
@@ -554,7 +552,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for eqp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().eq(other[0].clone());
         svv[1] = self[1].clone().eq(other[1].clone());
         svv[2] = self[2].clone().eq(other[2].clone());
@@ -565,7 +563,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for nep")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().ne(other[0].clone());
         svv[1] = self[1].clone().ne(other[1].clone());
         svv[2] = self[2].clone().ne(other[2].clone());
@@ -576,7 +574,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for ltp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().lt(other[0].clone());
         svv[1] = self[1].clone().lt(other[1].clone());
         svv[2] = self[2].clone().lt(other[2].clone());
@@ -587,7 +585,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for lep")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().le(other[0].clone());
         svv[1] = self[1].clone().le(other[1].clone());
         svv[2] = self[2].clone().le(other[2].clone());
@@ -598,7 +596,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for gtp")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().gt(other[0].clone());
         svv[1] = self[1].clone().gt(other[1].clone());
         svv[2] = self[2].clone().gt(other[2].clone());
@@ -609,7 +607,7 @@ impl SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for gep")
         }
-        let mut svv = SymVarVec::new();
+        let mut svv = SymVarVec::new(4);
         svv[0] = self[0].clone().ge(other[0].clone());
         svv[1] = self[1].clone().ge(other[1].clone());
         svv[2] = self[2].clone().ge(other[2].clone());

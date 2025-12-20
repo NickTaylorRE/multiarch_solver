@@ -11,18 +11,20 @@ pub struct SymbolicContext {
     pub D: SymVarVec,
     pub E: SymVarVec,
     pub flags: SymVarVec,
+    pub sp: usize
 }
 
 impl SymbolicContext {
     pub fn new() -> Self {
         SymbolicContext {
-            stack: SymVarVec::new(),
-            A: SymVarVec::new(),
-            B: SymVarVec::new(),
-            C: SymVarVec::new(),
-            D: SymVarVec::new(),
-            E: SymVarVec::new(),
-            flags: SymVarVec::new(),
+            stack: SymVarVec::new(0),
+            A: SymVarVec::new(4),
+            B: SymVarVec::new(4),
+            C: SymVarVec::new(4),
+            D: SymVarVec::new(4),
+            E: SymVarVec::new(4),
+            flags: SymVarVec::new(4),
+            sp: 0,
         }
     }
     pub fn set_reg(&mut self, offset: u8, value: SymVarVec) {
@@ -55,51 +57,93 @@ impl SymbolicContext {
             _ => '?',
         }
     }
+/*    pub fn get_sp(&self) -> usize {
+        self.sp.clone()
+    }
+    // converts from the positive sp used internally to the negative one used in the decoders
+    // the real vm uses a stack that grows negative. we have a stack that grows positive.
+    // this means all the pointer arithmetic is backwards.
+    fn convert_sp(&self) -> isize {
+        return -(self.sp)
+    }*/
 
     // === STACK VM IMPLEMENTATIONS ===
     // S.PUSH
-    pub fn push(&mut self, value: SymVarVec) {
-        self.stack.pushp(value);
+    pub fn pushp(&mut self, value: SymVarVec) {
+        if value.len() > 4 {
+            panic!("length of SymVarVec too long for pushp")
+        }
+        self.stack.push(value);
+        self.sp = self.stack.len();
+    }
+    pub fn pushw(&mut self, value: SymVarVec) {
+        if value.len() > 2 {
+            panic!("length of SymVarVec too long for pushp")
+        }
+        self.stack.push(value);
+        self.sp = self.stack.len();
+    }
+    pub fn pushb(&mut self, value: SymVarVec) {
+        if value.len() > 1 {
+            panic!("length of SymVarVec too long for pushp")
+        }
+        self.stack.push(value);
+        self.sp = self.stack.len();
     }
     // S.POP
-    pub fn pop(&mut self) -> Option<SymVarVec> {
-        return self.stack.popp()
+    pub fn popp(&mut self) -> Option<SymVarVec> {
+        let value = self.stack.pop(4);
+        self.sp -= 4; // our stack grows backwards
+        return value
+    }
+    pub fn popw(&mut self) -> Option<SymVarVec> {
+        let value = self.stack.pop(2);
+        self.sp -= 2; // our stack grows backwards
+        return value
+    }
+    pub fn popb(&mut self) -> Option<SymVarVec> {
+        let value = self.stack.pop(1);
+        self.sp -= 1; // our stack grows backwards
+        return value
+    }
+    pub fn getp(&self, offset: usize) -> SymVarVec {
+        self.stack.get(offset, 4)
     }
     // S.ADDP
     pub fn addp(&mut self) {
-        if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.addp(b));
+        if let (Some(b), Some(a)) = (self.popp(), self.popp()){
+            self.pushp(a.addp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
     }
     // S.SUBP
     pub fn subp(&mut self) {
-        if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.subp(b));
+        if let (Some(b), Some(a)) = (self.popp(), self.popp()){
+            self.pushp(a.subp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
     }
     // S.XORP
     pub fn xorp(&mut self) {
-        if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.bitxorp(b));
+        if let (Some(b), Some(a)) = (self.popp(), self.popp()){
+            self.pushp(a.bitxorp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
     }
     // S.ANDP
     pub fn andp(&mut self) {
-        if let (Some(b), Some(a)) = (self.pop(), self.pop()){
-            self.push(a.bitandp(b));
+        if let (Some(b), Some(a)) = (self.popp(), self.popp()){
+            self.pushp(a.bitandp(b));
         } else {
             panic!("Symbex VM failed to pop parameters");
         }
     }
     // S.CMPP
     pub fn cmpp(&mut self) {
-        if let (Some(b), Some(a)) = (self.pop(), self.pop()){
+        if let (Some(b), Some(a)) = (self.popp(), self.popp()){
             self.flags = SymVarVec::eqp(a,b);
         } else {
             panic!("Symbex VM failed to pop parameters");
