@@ -226,11 +226,14 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 1 => {
                     if *emu {
                         let input_pointer = context.B.try_concrete_u32().expect("failed to extract B in fgetc") as usize;
-                        let input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
-                        let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size-1);
-                        input.push(SymVarVec::concrete_u8(0)); // null terminator
-                        // we have to reverse the string and write it backwards
-                        // its different from the vm but works the same so whatever.
+                        let mut input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
+                        //input.push(SymVarVec::concrete_u8(0)); // null terminator
+                        // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
+                        // to hash 4 bytes past the end of the string.
+                        // unfortunately, this is specific to this crackme and not a failure of the VM,
+                        // but i have to deal with it anyway.
+                        input_size += 4;
+                        let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size);
                         input.reverse();
                         context.stack.assign(input_pointer+input.len(), &input);
                     }
@@ -276,7 +279,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         argument = format!("reg1:{}, reg2:{}", context.reg_name(register1), context.reg_name(register2));
     } else if (opcode == 0x31) {
         let reg_param = regvm_instruction_reader.read_byte();
-        let immediate = regvm_instruction_reader.read_pointer();
+        let mut immediate = regvm_instruction_reader.read_pointer();
         if ((reg_param >> 4) - 1) <= 3 {
             mnemonic = "R.SUB.RI".to_string();
             let register = (((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb) - 0x3b;
@@ -286,6 +289,11 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             mnemonic = "R.SUB.SI".to_string();
             argument = format!("imm:{:#X}", immediate);
             if *emu {
+                // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
+                // to hash 4 bytes past the end of the string.
+                // unfortunately, this is specific to this crackme and not a failure of the VM,
+                // but i have to deal with it anyway.
+                immediate += 4;
                 context.stack.assign(context.sp, &SymVarVec::concrete_n(immediate as usize)); // assign can grow if needed
                 context.sp -= immediate as usize;
             }
@@ -329,6 +337,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
     } else if (opcode == 0x61) {
         mnemonic = "R.RET".to_string();
         if *emu {
+            context.sp += (regvm_instruction_reader.read_byte() << 2) as usize;
             let target = context.popp().expect("failed to pop off stack")
                           .try_concrete_u32().expect("failed to pop u32 off stack");
             regvm_instruction_reader.set_position(target as usize);
@@ -339,7 +348,12 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
         if *emu {
-            if context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize == 1 {
+            // SymVecVars compare each SymVar(byte) in the vec to a corresponding SymVar and
+            // determines equality of just the 2. so the resulting SymVar could have bytes that are
+            // equal and bytes that aren't. we're only interesting in full equality or not full
+            // equality.
+            //println!("comparison: {:#X}",context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize);
+            if context.flags.try_concrete_u32().expect("failed to try_concrete JE flags") as usize == 0x01010101 {
                 regvm_instruction_reader.set_position(target as usize - 0x1000);
             }
         }
@@ -348,7 +362,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
         if *emu {
-            if context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize == 0 {
+            if context.flags.try_concrete_u32().expect("failed to try_concrete JNE flags") as usize != 0x01010101 {
                 regvm_instruction_reader.set_position(target as usize - 0x1000);
             }
         }

@@ -58,19 +58,31 @@ impl SymVar {
         let ctx = Context::new(&cfg);
         let solver = Solver::new(&ctx);
         let mut vars = HashMap::new();
+    
+        let mut params = z3::Params::new(&ctx);                                                                                  
+        params.set_u32("timeout", 5000);  // 5 second timeout                                                                
+        solver.set_params(&params);  
+
+
+        println!("self: {}",self);
+
 
         let z3_expr = self.to_z3(&ctx, &mut vars);
         solver.assert(&z3_expr._eq(&BV::from_u64(&ctx, 1, 32)));
 
         match solver.check() {
             SatResult::Sat => {
+                println!("Z3 found sat");
                 let model = solver.get_model().expect("failed to get model when z3 solved");
                 for (name, z3_var) in &vars {
                     if let Some(val) = model.eval(z3_var,true) {
                         let solution = val.as_u64().expect("failed to convert to u64");
+                        println!("solution: {}", solution);
                         return Some(solution)
                     }
                 }
+                // some solutions are going to be trivial and not have vars
+                return self.try_concrete()
             }
             SatResult::Unsat => {
                 println!("Z3 found unsat");
@@ -78,6 +90,10 @@ impl SymVar {
             }
             SatResult::Unknown => {
                 println!("Z3 returned unknown");
+                return None
+            }
+            _ => {
+                println!("Error solving");
                 return None
             }
         }
@@ -90,7 +106,7 @@ impl SymVar {
         if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
             return SymVar::Concrete(x.wrapping_add(*y));
         }
-        return SymVar::Add(Box::new(self),Box::new(other))
+        return SymVar::And(Box::new(SymVar::Add(Box::new(self),Box::new(other))), Box::new(SymVar::Concrete(0xff)))
     }
     pub fn sub(self, other: SymVar) -> SymVar {
         if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
@@ -102,7 +118,7 @@ impl SymVar {
         if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
             return SymVar::concrete(x.wrapping_mul(*y));
         }
-        return SymVar::Mul(Box::new(self),Box::new(other))
+        return SymVar::And(Box::new(SymVar::Mul(Box::new(self),Box::new(other))), Box::new(SymVar::Concrete(0xff)))
     }
     pub fn bitxor(self, other: SymVar) -> SymVar {
         if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
@@ -474,10 +490,25 @@ impl SymVarVec {
             panic!("SymVarVec is too short for addp")
         }
         let mut svv = SymVarVec::new(4);
-        svv[0] = self[0].clone().add(other[0].clone());
-        svv[1] = self[1].clone().add(other[1].clone());
-        svv[2] = self[2].clone().add(other[2].clone());
-        svv[3] = self[3].clone().add(other[3].clone());
+        let svv_0 = self[0].clone().add(other[0].clone());
+        let svv_0_lsb = svv_0.clone().bitand(SymVar::concrete(0xff));
+        let svv_0_msb = (svv_0.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[0] = svv_0_lsb;
+
+        let svv_1 = self[1].clone().add(other[1].clone());
+        let svv_1_lsb = svv_1.clone().bitand(SymVar::concrete(0xff));
+        let svv_1_msb = (svv_1.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[1] = svv_1_lsb.add(svv_0_msb);
+
+        let svv_2 = self[2].clone().add(other[2].clone());
+        let svv_2_lsb = svv_2.clone().bitand(SymVar::concrete(0xff));
+        let svv_2_msb = (svv_2.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[2] = svv_2_lsb.add(svv_1_msb);
+
+        let svv_3 = self[3].clone().add(other[3].clone());
+        let svv_3_lsb = svv_3.clone().bitand(SymVar::concrete(0xff));
+        svv[3] = (svv_3_lsb.add(svv_2_msb)).bitand(SymVar::concrete(0xff));
+
         return svv
     }
     pub fn subp(self, other: SymVarVec) -> SymVarVec {
@@ -496,10 +527,25 @@ impl SymVarVec {
             panic!("SymVarVec is too short for mulp")
         }
         let mut svv = SymVarVec::new(4);
-        svv[0] = self[0].clone().mul(other[0].clone());
-        svv[1] = self[1].clone().mul(other[1].clone());
-        svv[2] = self[2].clone().mul(other[2].clone());
-        svv[3] = self[3].clone().mul(other[3].clone());
+                let svv_0 = self[0].clone().mul(other[0].clone());
+        let svv_0_lsb = svv_0.clone().bitand(SymVar::concrete(0xff));
+        let svv_0_msb = (svv_0.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[0] = svv_0_lsb;
+
+        let svv_1 = self[1].clone().mul(other[1].clone());
+        let svv_1_lsb = svv_1.clone().bitand(SymVar::concrete(0xff));
+        let svv_1_msb = (svv_1.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[1] = svv_1_lsb.add(svv_0_msb);
+
+        let svv_2 = self[2].clone().mul(other[2].clone());
+        let svv_2_lsb = svv_2.clone().bitand(SymVar::concrete(0xff));
+        let svv_2_msb = (svv_2.clone().bitand(SymVar::concrete(0xff00))).shr(SymVar::concrete(8));
+        svv[2] = svv_2_lsb.add(svv_1_msb);
+
+        let svv_3 = self[3].clone().mul(other[3].clone());
+        let svv_3_lsb = svv_3.clone().bitand(SymVar::concrete(0xff));
+        svv[3] = (svv_3_lsb.add(svv_2_msb)).bitand(SymVar::concrete(0xff));
+
         return svv
     }
     pub fn bitxorp(self, other: SymVarVec) -> SymVarVec {

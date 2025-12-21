@@ -152,7 +152,7 @@ impl SymbolicContext {
     // R.ADD_IR
     pub fn add_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.set_reg(reg, SymVarVec::concrete_u32(imm));
+        self.set_reg(reg, r.addp(SymVarVec::concrete_u32(imm)));
     }
     // R.SUB_RR
     pub fn sub_rr(&mut self, reg1: u8, reg2: u8) {

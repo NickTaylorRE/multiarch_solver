@@ -4,6 +4,7 @@ use crate::stack_decoder::stackvm_disassembler;
 use crate::reg_decoder::regvm_disassembler;
 use symbex::symbex_vm::SymbolicContext;
 use symbex::symbex_engine::SymVar;
+use symbex::symbex_engine::SymVarVec;
 use crate::MappedMasmSections;
 
 use std::env;
@@ -106,21 +107,42 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
     // some instructions require a stack value. so we maintain a stack here
     let mut context = SymbolicContext::new();
     //while mapped_masm_sections.text[i] != 0 {
+    let mut loop_counter = 0;
     while i < 0x164 { // > 0x164 there is no more code for our challenge progra
         if emu {
+            // must be a multiple of 4
+            let chal2_loop = 0x4;
             // this match statement gives us control to do things in the middle of exection.
+            // like breakpoints
             match i {
                 // we are at a conditional jmp so we solve
                 0x55 => {
                     if let Some(val) = context.flags.try_solve_u32() {
-                        println!("Solution found: {}({:#X})", val, val);
+                        println!("Solution 1 found: {}({:#X})", val, val);
                     }
                 },
-                // at this point we can choose to solve with some artificial constriaints or save
-                // state and fiddle with the loop to reach the conditional jmp and solve there.
-                0x13D => {
-                    return
+                // at this point we are in are in a point to choose the length
+                // way to solve here is to test different loop lengths manually until one solves
+                /*0x77 => {
+                    // manually set reg C which determines the string length
+                    context.set_reg(0x8, SymVarVec::concrete_u32(chal2_loop));
                 }
+                0x83 => {
+                    // manually set reg B which determines the loop length.
+                    context.set_reg(0x4, SymVarVec::concrete_u32(chal2_loop));
+                },*/
+                // this is the conditional jump for the second challenge after the hashing loop
+                0x8D => {
+                    if let Some(val) = context.flags.try_solve_u32() {
+                        println!("Solution 2 found: {}({:#X})", val, val);
+                    } 
+                },
+/*                0x137 => {
+                    if loop_counter == 1 {
+                        return
+                    }
+                    loop_counter += 1;
+                }*/
                 _ => {}
             }
         }
@@ -145,7 +167,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             i = regvm_instruction_reader.current_position();
         }
         if emu {
-            println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{:?} \nsp:{}\n", context.A, context.B, context.C, context.D, context.E, context.flags, &context.stack[(context.stack.len()-(0x1000 - context.sp))..], context.sp);
+            println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{:?} \nsp:{:#X}\n", context.A, context.B, context.C, context.D, context.E, context.flags, &context.stack[(context.stack.len()-(0x1000 - context.sp))..], context.sp);
         }
     }
 }
