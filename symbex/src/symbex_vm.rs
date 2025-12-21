@@ -17,14 +17,14 @@ pub struct SymbolicContext {
 impl SymbolicContext {
     pub fn new() -> Self {
         SymbolicContext {
-            stack: SymVarVec::new(0),
+            stack: SymVarVec::new(0x1000),
             A: SymVarVec::new(4),
             B: SymVarVec::new(4),
             C: SymVarVec::new(4),
             D: SymVarVec::new(4),
             E: SymVarVec::new(4),
             flags: SymVarVec::new(4),
-            sp: 0,
+            sp: 0xfff,
         }
     }
     pub fn set_reg(&mut self, offset: u8, value: SymVarVec) {
@@ -57,15 +57,6 @@ impl SymbolicContext {
             _ => '?',
         }
     }
-/*    pub fn get_sp(&self) -> usize {
-        self.sp.clone()
-    }
-    // converts from the positive sp used internally to the negative one used in the decoders
-    // the real vm uses a stack that grows negative. we have a stack that grows positive.
-    // this means all the pointer arithmetic is backwards.
-    fn convert_sp(&self) -> isize {
-        return -(self.sp)
-    }*/
 
     // === STACK VM IMPLEMENTATIONS ===
     // S.PUSH
@@ -73,38 +64,38 @@ impl SymbolicContext {
         if value.len() > 4 {
             panic!("length of SymVarVec too long for pushp")
         }
-        self.stack.push(value);
-        self.sp = self.stack.len();
+        self.stack.assign(self.sp,&value);
+        self.sp -= 4;
     }
     pub fn pushw(&mut self, value: SymVarVec) {
         if value.len() > 2 {
             panic!("length of SymVarVec too long for pushp")
         }
-        self.stack.push(value);
-        self.sp = self.stack.len();
+        self.stack.assign(self.sp,&value);
+        self.sp -= 2;
     }
     pub fn pushb(&mut self, value: SymVarVec) {
         if value.len() > 1 {
             panic!("length of SymVarVec too long for pushp")
         }
-        self.stack.push(value);
-        self.sp = self.stack.len();
+        self.stack.assign(self.sp,&value);
+        self.sp -= 1;
     }
     // S.POP
     pub fn popp(&mut self) -> Option<SymVarVec> {
-        let value = self.stack.pop(4);
-        self.sp -= 4; // our stack grows backwards
-        return value
+        let value = self.stack.get(self.sp,4);
+        self.sp += 4;
+        return Some(value)
     }
     pub fn popw(&mut self) -> Option<SymVarVec> {
-        let value = self.stack.pop(2);
-        self.sp -= 2; // our stack grows backwards
-        return value
+        let value = self.stack.get(self.sp, 2);
+        self.sp += 2;
+        return Some(value)
     }
     pub fn popb(&mut self) -> Option<SymVarVec> {
-        let value = self.stack.pop(1);
-        self.sp -= 1; // our stack grows backwards
-        return value
+        let value = self.stack.get(self.sp, 1);
+        self.sp += 1;
+        return Some(value)
     }
     pub fn getp(&self, offset: usize) -> SymVarVec {
         self.stack.get(offset, 4)

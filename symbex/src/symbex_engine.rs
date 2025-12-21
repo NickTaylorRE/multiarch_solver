@@ -442,7 +442,7 @@ impl SymVarVec {
 // NOTE: push and pop should not be used outside SymVarVec. only the sized pushs and pops
 impl SymVarVec {
     pub fn push(&mut self, other: SymVarVec) {
-        self.0.extend(other.0)
+        self.0.extend(other.0) // forward stack
     }
     pub fn pop(&mut self, len: usize) -> Option<SymVarVec> {
         if self.0.len() < len {
@@ -452,21 +452,19 @@ impl SymVarVec {
         return Some(SymVarVec(popped))
     }
     pub fn assign(&mut self, offset: usize, value: &SymVarVec) {
+        let mut new_value = value.0.clone();
         for (i, sv) in value.0.iter().enumerate() {
-            if offset + i < self.0.len() {
-                self.0[offset + i] = sv.clone();
-            } else {
-                self.0.push(sv.clone());
+            if offset - i - 1 > 0 {
+                self.0[offset - i - 1] = sv.clone();
             }
         }
     }
-    fn get_at(&self, offset: usize, count: usize) -> SymVarVec {
-        let slice = &self.0[offset-count..offset]; //when sp is positive
-        //let slice = &self.0[offset..offset+count];
-        return SymVarVec(slice.to_vec())
-    }
     pub fn get(&self, offset: usize, len: usize) -> SymVarVec {
-        return self.get_at(offset, len);
+        //let mut slice = &self.0[offset-len..offset];
+        let mut slice = &self.0[offset..offset+len];
+        let mut slice_vec = slice.to_vec();
+        slice_vec.reverse();
+        return SymVarVec(slice_vec)
     }
 }
 

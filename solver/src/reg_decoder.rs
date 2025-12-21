@@ -229,12 +229,10 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                         let input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
                         let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size-1);
                         input.push(SymVarVec::concrete_u8(0)); // null terminator
+                        // we have to reverse the string and write it backwards
+                        // its different from the vm but works the same so whatever.
                         input.reverse();
-                        // i believe the actual vm writes the string backwards because the stack
-                        // grows down, which some may argue is backwards.
-                        // we do things forwards here. which means we start from the beginning of
-                        // the string.
-                        context.stack.assign(input_pointer - input_size, &input);
+                        context.stack.assign(input_pointer+input.len(), &input);
                     }
                     argument = format!("fgetc({:#X})", syscall)
                 },
@@ -289,7 +287,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             argument = format!("imm:{:#X}", immediate);
             if *emu {
                 context.stack.assign(context.sp, &SymVarVec::concrete_n(immediate as usize)); // assign can grow if needed
-                context.sp += immediate as usize; // our stack grows backwards. so we do not sub, we add.
+                context.sp -= immediate as usize;
             }
         }
     } else if (opcode == 0x40) {

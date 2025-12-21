@@ -110,11 +110,14 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
         if emu {
             // this match statement gives us control to do things in the middle of exection.
             match i {
+                // we are at a conditional jmp so we solve
                 0x55 => {
                     if let Some(val) = context.flags.try_solve_u32() {
                         println!("Solution found: {}({:#X})", val, val);
                     }
                 },
+                // at this point we can choose to solve with some artificial constriaints or save
+                // state and fiddle with the loop to reach the conditional jmp and solve there.
                 0x13D => {
                     return
                 }
@@ -122,9 +125,6 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             }
         }
 
-        if emu {
-            println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{} \nsp:{}\n", context.A, context.B, context.C, context.D, context.E, context.flags, context.stack, context.sp);
-        }
         // pc is always +0x1000 because it gets instantiated that way in the code
         let pc_arch: u8 = get_pc_arch(i+0x1000, &mapped_masm_sections.arch);
         if pc_arch == 0 {
@@ -143,6 +143,9 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             let mut regvm_instruction_reader = RegvmInstructionReader::new(&mapped_masm_sections.text, i);
             regvm_disassembler(&mut regvm_instruction_reader, &mut context, &mapped_masm_sections.data, &emu);
             i = regvm_instruction_reader.current_position();
+        }
+        if emu {
+            println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{:?} \nsp:{}\n", context.A, context.B, context.C, context.D, context.E, context.flags, &context.stack[(context.stack.len()-(0x1000 - context.sp))..], context.sp);
         }
     }
 }
