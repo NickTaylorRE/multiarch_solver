@@ -11,7 +11,8 @@ pub struct SymbolicContext {
     pub D: SymVarVec,
     pub E: SymVarVec,
     pub flags: SymVar,
-    pub sp: usize
+    pub sp: usize,
+    pub rand_state: SymVarVec
 }
 
 impl SymbolicContext {
@@ -25,6 +26,7 @@ impl SymbolicContext {
             E: SymVarVec::new(4),
             flags: SymVar::concrete(0),
             sp: 0xfff,
+            rand_state: SymVarVec::concrete_u32(1)
         }
     }
     pub fn set_reg(&mut self, offset: u8, value: SymVarVec) {
@@ -211,5 +213,27 @@ impl SymbolicContext {
     pub fn cmp_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
         self.flags = SymVarVec::eqp(r,SymVarVec::concrete_u32(imm));
+    }
+}
+
+impl SymbolicContext {
+    pub fn srand(&mut self, seed: SymVarVec) {
+        self.rand_state = seed;
+    }
+    pub fn rand(&mut self) -> SymVarVec {
+        let value1: SymVarVec = self.rand_primitive();
+        let value2: SymVarVec = self.rand_primitive().shlp(SymVarVec::concrete_u32(0x10));
+        let ret_value = value1.bitorp(value2);
+        return ret_value
+    }
+    // https://elixir.bootlin.com/glibc/glibc-2.42.9000/source/stdlib/random_r.c#L370
+    pub fn rand_primitive(&mut self) -> SymVarVec {
+        let (_, new_state) = self.rand_state.clone()
+            .mulp(SymVarVec::concrete_u32(1103515245));
+        let new_state = new_state.addp(SymVarVec::concrete_u32(12345));
+        let new_state = new_state.bitandp(SymVarVec::concrete_u32(0x7fffffff));
+
+        self.rand_state = new_state.clone();
+        return new_state
     }
 }

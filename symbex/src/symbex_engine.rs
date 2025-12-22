@@ -60,7 +60,7 @@ impl SymVar {
         let mut vars: HashMap<String, BV> = HashMap::new();
     
         let mut params = z3::Params::new(&ctx);                                                                                  
-        params.set_u32("timeout", 5000);  // 5 second timeout                                                                
+        params.set_u32("timeout", 120000);  // 2 minute timeout                                                                
         solver.set_params(&params);  
 
         //println!("self: {}",self);
@@ -613,7 +613,15 @@ impl SymVarVec {
         let result = a.shr(b);
         return SymVarVec::from_symvar_u32(result)
     }
-
+    pub fn shlp(self, shift: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for shrp")
+        }
+        let a = self.to_symvar_u32();
+        let b = shift.to_symvar_u32();
+        let result = a.shl(b);
+        return SymVarVec::from_symvar_u32(result)
+    }
     pub fn notp(self) -> SymVarVec {
         if self.len() < 4 {
             panic!("SymVarVec is too short for notp")

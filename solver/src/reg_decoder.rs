@@ -4,6 +4,7 @@ use crate::dispatcher::RegvmInstructionReader;
 use symbex::symbex_vm::SymbolicContext;
 use symbex::symbex_engine::SymVarVec;
 
+
 fn read_string(data: &Vec<u8>, loc: &usize, size: usize) -> String {
     let mut string: Vec<u8> = Vec::new();
     let mut loc_clone = loc.clone();
@@ -216,32 +217,44 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         if *emu {
             let syscall = context.A.try_concrete_u32().expect("failed to try_concrete for syscall in reg_decoder");
             let mut string: String = "".to_string();
-            let data_pointer = context.B.try_concrete_u32().expect("failed to try_concrete for data_pointer in reg_decoder");
-            if data_pointer > 0x2000 {
-                let size = context.C.try_concrete_u32().expect("failed to try_concrete for string size in reg_decoder") as usize;
-                string = read_string(data_section, &(data_pointer as usize - 0x2000), size);
-            }
             match syscall {
-                0 => argument = format!("fscanf({:#X}), {}", syscall, string),
+                0 => {
+                    context.set_reg(context.reg_value('A'),(SymVarVec::symbolic_u32("input_3".to_string())));
+                    argument = format!("fscanf({:#X})", syscall);
+                },
                 1 => {
-                    if *emu {
-                        let input_pointer = context.B.try_concrete_u32().expect("failed to extract B in fgetc") as usize;
-                        let mut input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
-                        //input.push(SymVarVec::concrete_u8(0)); // null terminator
-                        // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
-                        // to hash 4 bytes past the end of the string.
-                        // unfortunately, this is specific to this crackme and not a failure of the VM,
-                        // but i have to deal with it anyway.
-                        //input_size += 4;
-                        let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size);
-                        input.reverse();
-                        context.stack.assign(input_pointer+input.len(), &input);
-                    }
+                    let input_pointer = context.B.try_concrete_u32().expect("failed to extract B in fgetc") as usize;
+                    let mut input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
+                    //input.push(SymVarVec::concrete_u8(0)); // null terminator
+                    // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
+                    // to hash 4 bytes past the end of the string.
+                    // unfortunately, this is specific to this crackme and not a failure of the VM,
+                    // but i have to deal with it anyway.
+                    //input_size += 4;
+                    let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size);
+                    input.reverse();
+                    context.stack.assign(input_pointer+input.len(), &input);
                     argument = format!("fgetc({:#X})", syscall)
                 },
-                2 => argument = format!("fputs({:#X}), {}", syscall, string),
-                3 => argument = format!("srand({:#X})",syscall),
-                4 => argument = format!("rand({:#X})",syscall),
+                2 => {
+                    let data_pointer = context.B.try_concrete_u32().expect("failed to try_concrete for data_pointer in reg_decoder");
+                    if data_pointer > 0x2000 {
+                        let size = context.C.try_concrete_u32().expect("failed to try_concrete for string size in reg_decoder") as usize;
+                        string = read_string(data_section, &(data_pointer as usize - 0x2000), size);
+                    }
+                    argument = format!("fputs({:#X}), {}", syscall, string)
+                },
+                3 => {
+                    let rand_seed = context.B.clone();
+                    context.srand(rand_seed);
+                    argument = format!("srand({:#X})",syscall);
+                },
+                4 => {
+                    let rand_value: SymVarVec = context.rand();
+
+                    context.set_reg(context.reg_value('A'),rand_value);
+                    argument = format!("rand({:#X})",syscall);
+                },
                 5 => argument = format!("unsupported({:#X})",syscall),
                 6 => argument = format!("split_register({:#X})",syscall),
                 _ => argument = format!("UNKNOWN({:#X})",syscall),

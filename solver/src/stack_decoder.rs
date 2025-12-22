@@ -76,7 +76,9 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
         0x71 => {
             mnemonic = "S.JE".to_string();
             argument = format!("{:#X}",(instruction.operand as usize - 0x1000));
-            // we would solve here if the crackme required it.
+            if *emu {
+                
+            }
         }
         0x72 => {
             mnemonic = "S.JNE".to_string();
@@ -116,13 +118,15 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
                         argument = format!("fputs, {}", string);
                     },
                     3 => {
-                        let param1_seed = context.popp().expect("failed to pop from stack in S.SYSCALL")
-                                            .try_concrete_u32().expect("failed to try_concrete for param1_seed");
-                        // TODO: should we ACTUALLY seed rand and call rand? 
-                        argument = format!("srand, {}", param1_seed);
+                        let rand_seed = context.popp().expect("failed to pop from stack in S.SYSCALL");
+                        context.srand(rand_seed.clone());
+                        argument = format!("srand({:#X})", syscall);
+
                     },
                     4 => {
-                        argument = "rand".to_string();
+                        let rand_value: SymVarVec = context.rand();
+                        context.pushp(rand_value);
+                        argument = format!("rand({:#X})", syscall);
                     },
                     5 => argument = "flag_success".to_string(),
                     6 => argument = "split_register".to_string(),

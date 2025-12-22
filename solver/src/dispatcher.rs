@@ -106,7 +106,7 @@ fn print_solutions(solutions: Vec<(String, u64)>) {
     let mut solutions_sorted = solutions.clone();
     solutions_sorted.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, val) in &solutions_sorted {
-        println!("Solution 1 found: {}, {:#X}", name, val);
+        println!("Solution found: {}, {:#X}", name, val);
     }
 }
 
@@ -131,17 +131,6 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                         println!("No solution for 1");
                     }
                 },
-                // at this point we are in are in a point to choose the length
-                // way to solve here is to test different loop lengths manually until one solves
-                /*0x77 => {
-                    // manually set reg C which determines the string length
-                    context.set_reg(context.reg_value('C'), SymVarVec::concrete_u32(chal2_loop));
-                }
-                0x83 => {
-                    // manually set reg B which determines the loop length.
-                    context.set_reg(context.reg_value('B'), SymVarVec::concrete_u32(chal2_loop));
-                },*/
-                // this is the conditional jump for the second challenge after the hashing loop
                 0x8D => {
                     if let Some(solutions) = context.flags.try_solve() {
                         print_solutions(solutions);
@@ -149,12 +138,14 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                         println!("No solution for 2");
                     }
                 },
-/*                0x137 => {
-                    if loop_counter == 1 {
-                        return
+                0xD2 => {
+                    if let Some(solutions) = context.flags.try_solve() {
+                        print_solutions(solutions);
+                    } else {
+                        println!("No solution for 3");
                     }
-                    loop_counter += 1;
-                }*/
+                    return
+                },
                 _ => {}
             }
         }
