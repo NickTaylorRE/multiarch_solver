@@ -76,11 +76,12 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
         0x71 => {
             mnemonic = "S.JE".to_string();
             argument = format!("{:#X}",(instruction.operand as usize - 0x1000));
-            // we would constraint solve here if the crackme required it.
+            // we would solve here if the crackme required it.
         }
         0x72 => {
             mnemonic = "S.JNE".to_string();
             argument = format!("{:#X}",(instruction.operand as usize - 0x1000));
+            // we would solve here if the crackme required it.
         }
         0x80 => {
             mnemonic = "S.CMPP".to_string();

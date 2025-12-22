@@ -102,6 +102,14 @@ impl<'text> RegvmInstructionReader<'text> {
     }
 }
 
+fn print_solutions(solutions: Vec<(String, u64)>) {
+    let mut solutions_sorted = solutions.clone();
+    solutions_sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, val) in &solutions_sorted {
+        println!("Solution 1 found: {}, {:#X}", name, val);
+    }
+}
+
 pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
     let mut i:usize = 0;
     // some instructions require a stack value. so we maintain a stack here
@@ -117,25 +125,29 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             match i {
                 // we are at a conditional jmp so we solve
                 0x55 => {
-                    if let Some(val) = context.flags.try_solve_u32() {
-                        println!("Solution 1 found: {}({:#X})", val, val);
+                    if let Some(solutions) = context.flags.try_solve() {
+                        print_solutions(solutions);
+                    } else {
+                        println!("No solution for 1");
                     }
                 },
                 // at this point we are in are in a point to choose the length
                 // way to solve here is to test different loop lengths manually until one solves
                 /*0x77 => {
                     // manually set reg C which determines the string length
-                    context.set_reg(0x8, SymVarVec::concrete_u32(chal2_loop));
+                    context.set_reg(context.reg_value('C'), SymVarVec::concrete_u32(chal2_loop));
                 }
                 0x83 => {
                     // manually set reg B which determines the loop length.
-                    context.set_reg(0x4, SymVarVec::concrete_u32(chal2_loop));
+                    context.set_reg(context.reg_value('B'), SymVarVec::concrete_u32(chal2_loop));
                 },*/
                 // this is the conditional jump for the second challenge after the hashing loop
                 0x8D => {
-                    if let Some(val) = context.flags.try_solve_u32() {
-                        println!("Solution 2 found: {}({:#X})", val, val);
-                    } 
+                    if let Some(solutions) = context.flags.try_solve() {
+                        print_solutions(solutions);
+                    } else {
+                        println!("No solution for 2");
+                    }
                 },
 /*                0x137 => {
                     if loop_counter == 1 {
@@ -166,9 +178,9 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             regvm_disassembler(&mut regvm_instruction_reader, &mut context, &mapped_masm_sections.data, &emu);
             i = regvm_instruction_reader.current_position();
         }
-        if emu {
+/*        if emu {
             println!("[DEBUG] \nA:{} \nB:{} \nC:{} \nD:{} \nE:{} \nflags:{} \nstack:{:?} \nsp:{:#X}\n", context.A, context.B, context.C, context.D, context.E, context.flags, &context.stack[(context.stack.len()-(0x1000 - context.sp))..], context.sp);
-        }
+        }*/
     }
 }
 

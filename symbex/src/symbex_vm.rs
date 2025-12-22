@@ -1,6 +1,6 @@
 #![allow(warnings)]
 
-//use crate::symbex_engine::SymVar;
+use crate::symbex_engine::SymVar;
 use crate::symbex_engine::SymVarVec;
 
 pub struct SymbolicContext {
@@ -10,7 +10,7 @@ pub struct SymbolicContext {
     pub C: SymVarVec,
     pub D: SymVarVec,
     pub E: SymVarVec,
-    pub flags: SymVarVec,
+    pub flags: SymVar,
     pub sp: usize
 }
 
@@ -23,7 +23,7 @@ impl SymbolicContext {
             C: SymVarVec::new(4),
             D: SymVarVec::new(4),
             E: SymVarVec::new(4),
-            flags: SymVarVec::new(4),
+            flags: SymVar::concrete(0),
             sp: 0xfff,
         }
     }
@@ -55,6 +55,16 @@ impl SymbolicContext {
             0xc => 'D',
             0x10 => 'E',
             _ => '?',
+        }
+    }
+    pub fn reg_value(&self, offset: char) -> u8 {
+        match offset {
+            'A' => 0x0,
+            'B' => 0x4,
+            'C' => 0x8,
+            'D' => 0xc,
+            'E' => 0x10,
+            _ => panic!("Invalid reg name"),
         }
     }
 
@@ -180,12 +190,16 @@ impl SymbolicContext {
     pub fn mul_rr(&mut self, reg1: u8, reg2: u8) {
         let r1 = self.get_reg(reg1).clone();
         let r2 = self.get_reg(reg2).clone();
-        self.set_reg(reg1, r1.mulp(r2));
+        let (high,low) = r1.clone().mulp(r2.clone());
+        self.set_reg(self.reg_value('A'), low.clone());
+        self.set_reg(self.reg_value('D'), high.clone());
     }
     // R.MUL_RI
     pub fn mul_ri(&mut self, reg: u8, imm: u32) {
         let r = self.get_reg(reg).clone();
-        self.set_reg(reg, r.mulp(SymVarVec::concrete_u32(imm)));
+        let (high,low) = r.clone().mulp(SymVarVec::concrete_u32(imm));
+        self.set_reg(self.reg_value('A'), low.clone());
+        self.set_reg(self.reg_value('D'), high.clone());
     }
     // R.CMP_RR
     pub fn cmp_rr(&mut self, reg1: u8, reg2: u8) {

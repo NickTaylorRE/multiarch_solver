@@ -205,7 +205,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         mnemonic = "R.CMP.RI".to_string();
         let immediate = regvm_instruction_reader.read_pointer();
         let register = ((opcode & 3) << 2);
-        argument = format!("reg:{}, imm:{}", context.reg_name(register), immediate);
+        argument = format!("reg:{}, imm:{:#X}", context.reg_name(register), immediate);
         emu.then(|| context.cmp_ri(register, immediate));
     } else if (opcode == 0x00) {
         mnemonic = "R.INVALID".to_string();
@@ -232,7 +232,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                         // to hash 4 bytes past the end of the string.
                         // unfortunately, this is specific to this crackme and not a failure of the VM,
                         // but i have to deal with it anyway.
-                        input_size += 4;
+                        //input_size += 4;
                         let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size);
                         input.reverse();
                         context.stack.assign(input_pointer+input.len(), &input);
@@ -294,6 +294,10 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 // unfortunately, this is specific to this crackme and not a failure of the VM,
                 // but i have to deal with it anyway.
                 immediate += 4;
+                // adding 4 and doing nothing else works only because the hashing algorithm in the crackme
+                // multiplies the extra 4 bytes from the string, instantiated to 0, then xoring.
+                // the multiplication ends with 0, and the xor with 0 changes nothing about our hash.
+                // i suspect the VM also has memory instantiated to 0 that doesn't affect the hash just like we have here.
                 context.stack.assign(context.sp, &SymVarVec::concrete_n(immediate as usize)); // assign can grow if needed
                 context.sp -= immediate as usize;
             }
@@ -347,13 +351,9 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         mnemonic = "R.JE".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
+        // the way this challenge is written, JE is often used for loops
         if *emu {
-            // SymVecVars compare each SymVar(byte) in the vec to a corresponding SymVar and
-            // determines equality of just the 2. so the resulting SymVar could have bytes that are
-            // equal and bytes that aren't. we're only interesting in full equality or not full
-            // equality.
-            //println!("comparison: {:#X}",context.flags.try_concrete_u32().expect("failed to try_concrete flags") as usize);
-            if context.flags.try_concrete_u32().expect("failed to try_concrete JE flags") as usize == 0x01010101 {
+            if context.flags.try_concrete().expect("failed to try_concrete JE flags") as usize == 1 {
                 regvm_instruction_reader.set_position(target as usize - 0x1000);
             }
         }
@@ -361,11 +361,13 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         mnemonic = "R.JNE".to_string();
         let target = regvm_instruction_reader.read_pointer();
         argument = format!("{:#X}",target as usize - 0x1000);
-        if *emu {
-            if context.flags.try_concrete_u32().expect("failed to try_concrete JNE flags") as usize != 0x01010101 {
+        // the way this challenge is written, the only uses of JNE go to the fail condition
+        // so we just skip it.
+/*        if *emu {
+            if context.flags.try_concrete().expect("failed to try_concrete JNE flags") as usize != 1 {
                 regvm_instruction_reader.set_position(target as usize - 0x1000);
             }
-        }
+        }*/
     } else if (opcode == 0x64) {
         mnemonic = "R.JEFLAGS2".to_string();
         let target = regvm_instruction_reader.read_pointer();
