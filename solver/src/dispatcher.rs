@@ -11,6 +11,11 @@ use std::env;
 use std::fs;
 
 
+use std::thread;
+use std::time::Duration;
+
+
+
 // each instruction encodes which of the 2 architectures it should be decoded by
 fn get_pc_arch(pc: usize, arch_buf: &Vec<u8>) -> u8 {
     let mut pc_mut: i16 = pc.clone() as i16;
@@ -119,12 +124,11 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
     while i < 0x164 { // > 0x164 there is no more code for our challenge progra
         if emu {
             // must be a multiple of 4
-            let chal2_loop = 0x4;
             // this match statement gives us control to do things in the middle of exection.
             // like breakpoints
             match i {
                 // we are at a conditional jmp so we solve
-                0x55 => {
+                /*0x55 => {
                     if let Some(solutions) = context.flags.try_solve() {
                         print_solutions(solutions);
                     } else {
@@ -137,7 +141,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                     } else {
                         println!("No solution for 2");
                     }
-                },
+                },*/
                 0xD2 => {
                     if let Some(solutions) = context.flags.try_solve() {
                         print_solutions(solutions);
@@ -146,6 +150,16 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                     }
                     return
                 },
+                // these next 2 are for debugging the rand based hashing algorithm.
+                /*0xAC => {
+                    println!("[DEBUG] \nA:{}", context.A);
+                    context.set_reg(context.reg_value('A'),SymVarVec::concrete_u32(45483068));
+                    println!("[DEBUG] \nA:{:#X}", context.A.try_concrete_u32().expect("hash"));
+                    thread::sleep(Duration::from_secs(10));
+                },
+                0xC8 => {
+                    println!("[DEBUG] \nHash:{:#X}", context.getp(context.sp).try_concrete_u32().expect("hash"));
+                }*/
                 _ => {}
             }
         }

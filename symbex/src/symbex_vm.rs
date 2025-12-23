@@ -3,6 +3,8 @@
 use crate::symbex_engine::SymVar;
 use crate::symbex_engine::SymVarVec;
 
+
+
 pub struct SymbolicContext {
     pub stack: SymVarVec,
     pub A: SymVarVec,
@@ -12,7 +14,9 @@ pub struct SymbolicContext {
     pub E: SymVarVec,
     pub flags: SymVar,
     pub sp: usize,
-    pub rand_state: SymVarVec
+    state: [SymVarVec; 31],
+    fptr: usize,
+    rptr: usize,
 }
 
 impl SymbolicContext {
@@ -26,7 +30,9 @@ impl SymbolicContext {
             E: SymVarVec::new(4),
             flags: SymVar::concrete(0),
             sp: 0xfff,
-            rand_state: SymVarVec::concrete_u32(1)
+            state: std::array::from_fn(|_| SymVarVec::new(4)),
+            fptr: 3,
+            rptr: 0,
         }
     }
     pub fn set_reg(&mut self, offset: u8, value: SymVarVec) {
@@ -218,22 +224,95 @@ impl SymbolicContext {
 
 impl SymbolicContext {
     pub fn srand(&mut self, seed: SymVarVec) {
-        self.rand_state = seed;
-    }
-    pub fn rand(&mut self) -> SymVarVec {
-        let value1: SymVarVec = self.rand_primitive();
-        let value2: SymVarVec = self.rand_primitive().shlp(SymVarVec::concrete_u32(0x10));
-        let ret_value = value1.bitorp(value2);
-        return ret_value
-    }
-    // https://elixir.bootlin.com/glibc/glibc-2.42.9000/source/stdlib/random_r.c#L370
-    pub fn rand_primitive(&mut self) -> SymVarVec {
-        let (_, new_state) = self.rand_state.clone()
-            .mulp(SymVarVec::concrete_u32(1103515245));
-        let new_state = new_state.addp(SymVarVec::concrete_u32(12345));
-        let new_state = new_state.bitandp(SymVarVec::concrete_u32(0x7fffffff));
+        // If seed is 0, use 1
+        // For symbolic execution, you might want to add a constraint instead
+        let mut state: [SymVarVec; 31] = std::array::from_fn(|_| SymVarVec::new(4));
+        state[0] = seed.clone();
 
-        self.rand_state = new_state.clone();
-        return new_state
+        // Use the special LCG from glibc
+        let mut word = seed;
+        for i in 1..31 {
+            println!("lcg: {}", i);
+            // hi = word / 127773
+            // lo = word % 127773
+            // word = 16807 * lo - 2836 * hi
+            // if word < 0: word += 2147483647
+
+            let hi = word.clone().divp(SymVarVec::concrete_u32(127773));
+            let lo = word.clone().modp(SymVarVec::concrete_u32(127773));
+
+            let term1 = lo.mulp_low(SymVarVec::concrete_u32(16807));
+            let term2 = hi.mulp_low(SymVarVec::concrete_u32(2836));
+
+            word = term1.subp(term2);
+
+            // Handle negative: if word < 0, word += 2147483647
+            // For symbolic execution, you may need to handle this conditionally
+            // For now, we'll do modulo to keep it in range
+            word = word.modp(SymVarVec::concrete_u32(2147483647));
+
+            state[i] = word.clone();
+        }
+
+        self.state = state;
+        self.fptr = 3;
+        self.rptr = 0;
+
+        // Warmup: 31 * 10 = 310 iterations
+        for i in 0..310 {
+            println!("warmup: {}", i);
+            self.rand_primitive();
+        }
+    }
+
+    pub fn rand_primitive(&mut self) -> SymVarVec {
+        // val = *fptr += (uint32_t) *rptr
+        let val = self.state[self.fptr].clone().addp(self.state[self.rptr].clone());
+        self.state[self.fptr] = val.clone();
+
+        // result = val >> 1
+        let result = val.shrp(SymVarVec::concrete_u32(1));
+
+        // Advance pointers
+        self.fptr += 1;
+        if self.fptr >= 31 {
+            self.fptr = 0;
+            self.rptr += 1;
+        } else {
+            self.rptr += 1;
+            if self.rptr >= 31 {
+                self.rptr = 0;
+            }
+        }
+
+        result
+    }
+
+    pub fn rand(&mut self) -> SymVarVec {
+        let low = self.rand_primitive().clone();
+        let high = self.rand_primitive().clone();
+        return high.clone().shlp(SymVarVec::concrete_u32(0x10))
+                 .bitorp(
+                   low.clone().bitandp(SymVarVec::concrete_u32(0xffff)))
+    }
+}
+
+#[test]
+pub fn test_rand() {
+    unsafe {
+        libc::srand(1);
+    }
+
+    let mut ctx = SymbolicContext::new();
+    ctx.srand(SymVarVec::concrete_u32(1));
+
+    for i in 0..5 {
+        let mut libc_val: i32 = 0;
+        unsafe {
+            libc_val = libc::rand();
+        }
+        let our_val = ctx.rand();
+
+        println!("Round {}: libc={}, ours={}", i, libc_val, our_val.try_concrete_u32().expect("fs"));
     }
 }

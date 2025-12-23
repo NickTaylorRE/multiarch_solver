@@ -209,8 +209,9 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         argument = format!("reg:{}, imm:{:#X}", context.reg_name(register), immediate);
         emu.then(|| context.cmp_ri(register, immediate));
     } else if (opcode == 0x00) {
-        mnemonic = "R.INVALID".to_string();
+        mnemonic = "R.HLT".to_string();
         argument = "".to_string();
+        emu.then(|| regvm_instruction_reader.set_position(0x170));
     } else if (opcode == 0x01) {
         mnemonic = "R.SYSCALL".to_string();
         argument = "".to_string();
@@ -263,7 +264,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
     } else if (opcode == 0x10) {
         mnemonic = "R.PUSH.I".to_string();
         let immediate = regvm_instruction_reader.read_pointer();
-        argument = immediate.to_string();
+        argument = format!("{:#X}", immediate);
         emu.then(|| context.pushp(SymVarVec::concrete_u32(immediate)));
     } else if (opcode == 0x20) {
         mnemonic = "R.ADD.RR".to_string();

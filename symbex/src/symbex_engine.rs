@@ -20,6 +20,8 @@ pub enum SymVar {
     Add(Box<SymVar>, Box<SymVar>),
     Sub(Box<SymVar>, Box<SymVar>),
     Mul(Box<SymVar>, Box<SymVar>),
+    Div(Box<SymVar>, Box<SymVar>),
+    Mod(Box<SymVar>, Box<SymVar>),
     And(Box<SymVar>, Box<SymVar>),
     Or(Box<SymVar>, Box<SymVar>),
     Xor(Box<SymVar>, Box<SymVar>),
@@ -79,6 +81,7 @@ impl SymVar {
                 solver.assert(&z3_var.bvule(&BV::from_u64(&ctx, 0xff, 64)));
             }
         }
+    
 
         //println!("Z3 expr: {}", z3_expr);    
         solver.assert(&z3_expr._eq(&BV::from_u64(&ctx, 1, 64)));
@@ -134,6 +137,20 @@ impl SymVar {
             return SymVar::concrete(x.wrapping_mul(*y));
         }
         return SymVar::Mul(Box::new(self),Box::new(other))
+    }
+    pub fn udiv(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            if *y == 0 { panic!("Division by zero"); }
+            return SymVar::concrete(x / y);
+        }
+        return SymVar::Div(Box::new(self), Box::new(other))
+    }
+    pub fn umod(self, other: SymVar) -> SymVar {
+        if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
+            if *y == 0 { panic!("Modulo by zero"); }
+            return SymVar::concrete(x % y);
+        }
+        return SymVar::Mod(Box::new(self), Box::new(other))
     }
     pub fn bitxor(self, other: SymVar) -> SymVar {
         if let (SymVar::Concrete(x), SymVar::Concrete(y)) = (&self, &other) {
@@ -237,6 +254,17 @@ impl SymVar {
                 let b_z3 = b.to_z3(ctx, vars);
                 a_z3.bvmul(&b_z3)
             }
+            SymVar::Div(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvudiv(&b_z3)
+            }
+
+            SymVar::Mod(a, b) => {
+                let a_z3 = a.to_z3(ctx, vars);
+                let b_z3 = b.to_z3(ctx, vars);
+                a_z3.bvurem(&b_z3)
+            }
 
             SymVar::And(a, b) => {
                 let a_z3 = a.to_z3(ctx, vars);
@@ -338,6 +366,8 @@ impl fmt::Display for SymVar {
             SymVar::Add(a, b) => write!(f, "{} + {}", a, b),
             SymVar::Sub(a, b) => write!(f, "{} - {}", a, b),
             SymVar::Mul(a, b) => write!(f, "{} * {}", a, b),
+            SymVar::Div(a, b) => write!(f, "{} / {}", a, b),
+            SymVar::Mod(a, b) => write!(f, "{} % {}", a, b),
             SymVar::Xor(a, b) => write!(f, "{} ^ {}", a, b),
             SymVar::And(a, b) => write!(f, "{} & {}", a, b),
             SymVar::Or(a, b) => write!(f, "{} | {}", a, b),
@@ -576,6 +606,29 @@ impl SymVarVec {
         let high = result.shr(SymVar::concrete(32));
 
         return (SymVarVec::from_symvar_u32(high), SymVarVec::from_symvar_u32(low))
+    }
+    pub fn mulp_low(self, other: SymVarVec) -> SymVarVec {
+        let (_, low) = self.mulp(other);
+        return low
+    }
+    pub fn divp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for divp")
+        }
+        let a = self.to_symvar_u32();
+        let b = other.to_symvar_u32();
+        let result = a.udiv(b);
+        return SymVarVec::from_symvar_u32(result)
+    }
+
+    pub fn modp(self, other: SymVarVec) -> SymVarVec {
+        if self.len() < 4 {
+            panic!("SymVarVec is too short for modp")
+        }
+        let a = self.to_symvar_u32();
+        let b = other.to_symvar_u32();
+        let result = a.umod(b);
+        return SymVarVec::from_symvar_u32(result)
     }
     pub fn bitxorp(self, other: SymVarVec) -> SymVarVec {
         if self.len() < 4 {

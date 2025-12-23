@@ -9,3 +9,4 @@ path = "src/lib.rs"
 
 [dependencies]
 z3 = { version = "0.12", features = ["static-link-z3"] }
+libc = "0.2"
