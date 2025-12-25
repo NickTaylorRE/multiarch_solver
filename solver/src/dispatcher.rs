@@ -128,7 +128,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
             // like breakpoints
             match i {
                 // we are at a conditional jmp so we solve
-                /*0x55 => {
+                0x55 => {
                     if let Some(solutions) = context.flags.try_solve() {
                         print_solutions(solutions);
                     } else {
@@ -141,9 +141,10 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                     } else {
                         println!("No solution for 2");
                     }
-                },*/
+                },
                 0xD2 => {
-                    if let Some(solutions) = context.flags.try_solve() {
+                    //println!("flags:{}",context.flags);
+                    if let Some(solutions) = context.flags.solve_with_rand() {
                         print_solutions(solutions);
                     } else {
                         println!("No solution for 3");
@@ -153,7 +154,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                 // these next 2 are for debugging the rand based hashing algorithm.
                 /*0xAC => {
                     println!("[DEBUG] \nA:{}", context.A);
-                    context.set_reg(context.reg_value('A'),SymVarVec::concrete_u32(45483068));
+                    context.set_reg(context.reg_value('A'),SymVarVec::concrete_u32(0x2B6043C));
                     println!("[DEBUG] \nA:{:#X}", context.A.try_concrete_u32().expect("hash"));
                     thread::sleep(Duration::from_secs(10));
                 },

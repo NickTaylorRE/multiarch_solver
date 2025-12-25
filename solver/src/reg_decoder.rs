@@ -252,7 +252,6 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 },
                 4 => {
                     let rand_value: SymVarVec = context.rand();
-
                     context.set_reg(context.reg_value('A'),rand_value);
                     argument = format!("rand({:#X})",syscall);
                 },

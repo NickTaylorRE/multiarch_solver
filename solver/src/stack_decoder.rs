@@ -118,8 +118,8 @@ pub fn stackvm_disassembler(instruction: &mut StackvmInstruction, context: &mut 
                         argument = format!("fputs, {}", string);
                     },
                     3 => {
-                        let rand_seed = context.popp().expect("failed to pop from stack in S.SYSCALL");
-                        context.srand(rand_seed.clone());
+                        let srand_seed = context.popp().expect("failed to pop from stack in S.SYSCALL");
+                        context.srand(srand_seed.clone());
                         argument = format!("srand({:#X})", syscall);
 
                     },

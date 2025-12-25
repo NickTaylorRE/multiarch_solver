@@ -36,6 +36,8 @@ pub enum SymVar {
     Le(Box<SymVar>, Box<SymVar>),
     Gt(Box<SymVar>, Box<SymVar>),
     Ge(Box<SymVar>, Box<SymVar>),
+
+    Rand(Box<SymVar>, u32),
 }
 
 impl SymVar {
@@ -67,28 +69,33 @@ impl SymVar {
 
         //println!("self: {}",self);
 
+        // ===== RAND HANDLING =====
+        // at this point in the code, we extract out the rand() wrapper, guess at rand, plug it into the greater expression, and try to solve.
+        // if it does not solve, we increment rand and try again. typical brute force.
+        // once we find a value that satisfies the greater constraint, we constrain the inner expression with the brute forced rand output
+        // if it solves, we're good. if it doesn't we have to find another rand seed and try that.
+        
+
+        // == common expression discovery ==
+        // if we have 2 rand calls that use the same base symbolic variables, we should brute force them all together.
+        // if we have multiple calls with different symvars for each then we have to brute force recursively.
+
+        //panic!("fuck");
+
         let z3_expr = self.to_z3(&ctx, &mut vars);
 
-        /*let max_value = match size {
-            8 => 0xFF,         // u8
-            16 => 0xFFFF,       // u16
-            32 => 0xFFFFFFFF,   // u32
-            64 => u64::MAX,     // u64
-            _ => panic!("Invalid size: {}", size),
-        };*/
         for (name, z3_var) in &vars {
             if name.contains("_b") {  // byte variables
                 solver.assert(&z3_var.bvule(&BV::from_u64(&ctx, 0xff, 64)));
             }
         }
     
-
         //println!("Z3 expr: {}", z3_expr);    
         solver.assert(&z3_expr._eq(&BV::from_u64(&ctx, 1, 64)));
 
         match solver.check() {
             SatResult::Sat => {
-                println!("Z3 found sat");
+                //println!("Z3 found sat");
                 let model = solver.get_model().expect("failed to get model when z3 solved");
                 let mut final_solution = Vec::new();
                 for (name, z3_var) in &vars {
@@ -103,16 +110,159 @@ impl SymVar {
                 //return self.try_concrete()
             }
             SatResult::Unsat => {
-                println!("Z3 found unsat");
+                //println!("Z3 found unsat");
                 return None
             }
             SatResult::Unknown => {
-                println!("Z3 returned unknown");
+                //println!("Z3 returned unknown");
                 return None
             }
             _ => {
-                println!("Error solving");
+                //println!("Error solving");
                 return None
+            }
+        }
+        return None
+    }
+}
+
+impl SymVar {
+    pub fn find_rand_inners(&self) -> Vec<SymVar> {
+        match self {
+            SymVar::Rand(inner, index) => vec![inner.as_ref().clone(), SymVar::concrete(index.clone() as u64)],
+
+            SymVar::Add(a, b) | SymVar::Sub(a, b) | SymVar::Mul(a, b) |
+              SymVar::Div(a, b) | SymVar::Mod(a, b) | SymVar::And(a, b) |
+              SymVar::Or(a, b) | SymVar::Xor(a, b) | SymVar::Shl(a, b) |
+              SymVar::Shr(a, b) | SymVar::Eq(a, b) | SymVar::Ne(a, b) |
+              SymVar::Lt(a, b) | SymVar::Le(a, b) | SymVar::Gt(a, b) |
+              SymVar::Ge(a, b) => {
+                  let mut result = a.find_rand_inners();
+                  result.extend(b.find_rand_inners());
+                  result
+              },
+
+            SymVar::Not(a) => a.find_rand_inners(),
+
+            SymVar::Concrete(_) | SymVar::Var(_) => vec![],
+        }
+    }
+    pub fn replace_rand_with(&self, rand_values: &[u64]) -> SymVar {
+        match self {
+            SymVar::Rand(_, index) => SymVar::Concrete(rand_values[*index as usize]),
+
+            SymVar::Add(a, b) => SymVar::Add(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Sub(a, b) => SymVar::Sub(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Mul(a, b) => SymVar::Mul(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Div(a, b) => SymVar::Div(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Mod(a, b) => SymVar::Mod(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::And(a, b) => SymVar::And(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Or(a, b) => SymVar::Or(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Xor(a, b) => SymVar::Xor(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Shr(a, b) => SymVar::Shr(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Shl(a, b) => SymVar::Shl(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Eq(a, b) => SymVar::Eq(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Ne(a, b) => SymVar::Ne(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Lt(a, b) => SymVar::Lt(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Le(a, b) => SymVar::Le(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Gt(a, b) => SymVar::Gt(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+            SymVar::Ge(a, b) => SymVar::Ge(
+                Box::new(a.replace_rand_with(rand_values)),
+                Box::new(b.replace_rand_with(rand_values))
+            ),
+
+            SymVar::Not(a) => SymVar::Not(Box::new(a.replace_rand_with(rand_values))),
+
+            SymVar::Concrete(v) => SymVar::Concrete(*v),
+            SymVar::Var(name) => SymVar::Var(name.clone()),
+        }
+    }
+/*    pub fn rand_pair_brute_force_warmup() {
+        
+    }
+    pub fn brute_force_rand_pair(rand_pair: Vec<u32>) -> bool {
+        
+    }*/
+    pub fn solve_with_rand(&self) -> Option<Vec<(String, u64)>> {
+        let rand_inners = self.find_rand_inners();
+
+        // no rand inners means no rand.
+        if rand_inners.is_empty() {
+            return self.try_solve();
+        }
+
+        let inner_expr = &rand_inners[0];
+
+        // we need to
+        //for srand_guess in 0..0xffffffff {
+        for srand_guess in 45483060..45483080 {
+        /*    if (srand_guess % 0x100000) == 0 {
+                println!("guessing: {}", srand_guess);
+            }*/
+            let mut rand1: u64 = 0;
+            let mut rand2: u64 = 0;
+            unsafe {
+                libc::srand(srand_guess);
+                rand1 = libc::rand() as u64;
+                rand2 = libc::rand() as u64;
+            }
+            let rand_values = vec![rand1, rand2];
+
+            let outer_replaced = self.replace_rand_with(&rand_values);
+            if let Some(outer_solution) = outer_replaced.try_solve() {
+                let inner_constraint = SymVar::Eq(
+                    Box::new(inner_expr.clone()),
+                    Box::new(SymVar::Concrete(srand_guess as u64))
+                );
+
+                if let Some(inner_solution) = inner_constraint.try_solve() {
+                    return Some(inner_solution)
+                }
             }
         }
         return None
@@ -224,10 +374,16 @@ impl SymVar {
         }
         return SymVar::Ge(Box::new(self),Box::new(other))
     }
+    pub fn rand(self,index: u32) -> SymVar {
+        // we do not handle concrete rand situations
+        // concrete cases are handled right away in symbex_vm
+        // so we only get symvar cases here.
+        return SymVar::Rand(Box::new(self), index)
+    }
 }
 
 impl SymVar {
-    fn to_z3<'ctx>(&self, ctx: &'ctx Context, vars: &mut HashMap<String, BV<'ctx>>) -> BV<'ctx> {
+    pub fn to_z3<'ctx>(&self, ctx: &'ctx Context, vars: &mut HashMap<String, BV<'ctx>>) -> BV<'ctx> {
         match self {
             SymVar::Concrete(val) => BV::from_u64(ctx, *val as u64, 64),
 
@@ -354,6 +510,11 @@ impl SymVar {
                     &BV::from_u64(ctx, 0, 64),
                 )
             }
+            
+            // there is no rand to z3
+            SymVar::Rand(a, index) => {
+                panic!("cannot convert rand to z3.");
+            }
         }
     }
 }
@@ -380,6 +541,7 @@ impl fmt::Display for SymVar {
             SymVar::Le(a, b) => write!(f, "{} <= {}", a, b),
             SymVar::Gt(a, b) => write!(f, "{} > {}", a, b),
             SymVar::Ge(a, b) => write!(f, "{} >= {}", a, b),
+            SymVar::Rand(a, i) => write!(f, "rand({}_{})", a, i),
         }
     }
 }
@@ -475,6 +637,7 @@ impl SymVarVec {
         let b0 = self[0].try_concrete()? as u8;
         return Some(b0)
     }
+    // unnecessary because we only solve flags because we only solve on conditional jumps.
     /*pub fn try_solve_u32(&self) -> Option<u32> {
         if self.len() < 4 {
             return None
@@ -736,6 +899,11 @@ impl SymVarVec {
         let b = other.to_symvar_u32();
         let result = a.ge(b);
         return result
+    }
+    pub fn rand(self, index: u32) -> SymVarVec {
+        let a = self.to_symvar_u32();
+        let result = a.rand(index);
+        return SymVarVec::from_symvar_u32(result)
     }
 }
 
