@@ -222,12 +222,8 @@ impl SymVar {
             SymVar::Var(name) => SymVar::Var(name.clone()),
         }
     }
-/*    pub fn rand_pair_brute_force_warmup() {
-        
-    }
-    pub fn brute_force_rand_pair(rand_pair: Vec<u32>) -> bool {
-        
-    }*/
+    // this function does not finish in reasonable time with the current loop.
+    // i need to optimize it
     pub fn solve_with_rand(&self) -> Option<Vec<(String, u64)>> {
         let rand_inners = self.find_rand_inners();
 
@@ -238,7 +234,6 @@ impl SymVar {
 
         let inner_expr = &rand_inners[0];
 
-        // we need to
         //for srand_guess in 0..0xffffffff {
         for srand_guess in 45483060..45483080 {
         /*    if (srand_guess % 0x100000) == 0 {
