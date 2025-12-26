@@ -9,6 +9,8 @@ use z3::ast::{Ast, BV};
 use z3::{Context, Solver, SatResult, Config};
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 
 // we build an AST for the symvar because its easy to convert to z3
 #[derive(Clone, Debug)]
@@ -67,21 +69,6 @@ impl SymVar {
         params.set_u32("timeout", 120000);  // 2 minute timeout                                                                
         solver.set_params(&params);  
 
-        //println!("self: {}",self);
-
-        // ===== RAND HANDLING =====
-        // at this point in the code, we extract out the rand() wrapper, guess at rand, plug it into the greater expression, and try to solve.
-        // if it does not solve, we increment rand and try again. typical brute force.
-        // once we find a value that satisfies the greater constraint, we constrain the inner expression with the brute forced rand output
-        // if it solves, we're good. if it doesn't we have to find another rand seed and try that.
-        
-
-        // == common expression discovery ==
-        // if we have 2 rand calls that use the same base symbolic variables, we should brute force them all together.
-        // if we have multiple calls with different symvars for each then we have to brute force recursively.
-
-        //panic!("fuck");
-
         let z3_expr = self.to_z3(&ctx, &mut vars);
 
         for (name, z3_var) in &vars {
@@ -126,6 +113,7 @@ impl SymVar {
     }
 }
 
+// rand handling
 impl SymVar {
     pub fn find_rand_inners(&self) -> Vec<SymVar> {
         match self {
@@ -147,120 +135,160 @@ impl SymVar {
             SymVar::Concrete(_) | SymVar::Var(_) => vec![],
         }
     }
-    pub fn replace_rand_with(&self, rand_values: &[u64]) -> SymVar {
+    pub fn max_rand_index(&self) -> Option<u32> {
         match self {
-            SymVar::Rand(_, index) => SymVar::Concrete(rand_values[*index as usize]),
+            SymVar::Rand(_, index) => Some(*index),
 
-            SymVar::Add(a, b) => SymVar::Add(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Sub(a, b) => SymVar::Sub(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Mul(a, b) => SymVar::Mul(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Div(a, b) => SymVar::Div(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Mod(a, b) => SymVar::Mod(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::And(a, b) => SymVar::And(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Or(a, b) => SymVar::Or(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Xor(a, b) => SymVar::Xor(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Shr(a, b) => SymVar::Shr(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Shl(a, b) => SymVar::Shl(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Eq(a, b) => SymVar::Eq(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Ne(a, b) => SymVar::Ne(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Lt(a, b) => SymVar::Lt(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Le(a, b) => SymVar::Le(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Gt(a, b) => SymVar::Gt(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
-            SymVar::Ge(a, b) => SymVar::Ge(
-                Box::new(a.replace_rand_with(rand_values)),
-                Box::new(b.replace_rand_with(rand_values))
-            ),
+            SymVar::Add(a, b) | SymVar::Sub(a, b) | SymVar::Mul(a, b) |
+            SymVar::Div(a, b) | SymVar::Mod(a, b) | SymVar::And(a, b) |
+            SymVar::Or(a, b) | SymVar::Xor(a, b) | SymVar::Shl(a, b) |
+            SymVar::Shr(a, b) | SymVar::Eq(a, b) | SymVar::Ne(a, b) |
+            SymVar::Lt(a, b) | SymVar::Le(a, b) | SymVar::Gt(a, b) |
+            SymVar::Ge(a, b) => {
+                match (a.max_rand_index(), b.max_rand_index()) {
+                    (Some(x), Some(y)) => Some(x.max(y)),
+                    (Some(x), None) => Some(x),
+                    (None, Some(y)) => Some(y),
+                    (None, None) => None,
+                }
+            }
 
-            SymVar::Not(a) => SymVar::Not(Box::new(a.replace_rand_with(rand_values))),
+            SymVar::Not(a) => a.max_rand_index(),
 
-            SymVar::Concrete(v) => SymVar::Concrete(*v),
-            SymVar::Var(name) => SymVar::Var(name.clone()),
+            SymVar::Concrete(_) | SymVar::Var(_) => None,
         }
+    }
+    // https://elixir.bootlin.com/glibc/glibc-2.42.9000/source/stdlib/random_r.c#L370
+    pub fn compute_rand_values(&self, seed: u32, count: usize) -> Vec<u64> {
+        const DEG: usize = 31;
+        const SEP: usize = 3;
+
+        let seed = if seed == 0 { 1 } else { seed };
+
+        let mut state = [0i32; DEG];
+        state[0] = seed as i32;
+
+        let mut word = seed as i32;
+        for i in 1..DEG {
+            let hi = word / 127773;
+            let lo = word % 127773;
+            word = (16807 * lo) - (2836 * hi);
+            if word < 0 {
+                word += 2147483647;
+            }
+            state[i] = word as i32;
+        }
+
+        let mut fptr: usize = SEP;
+        let mut rptr: usize = 0;
+
+        let mut next_rand = || -> u64 {
+            let val = (state[fptr] as u32).wrapping_add(state[rptr] as u32);
+            state[fptr] = val as i32;
+            let result = ((state[fptr] as u32) >> 1) as u64;
+
+            fptr += 1;
+            if fptr >= DEG {
+                fptr = 0;
+                rptr += 1;
+            } else {
+                rptr += 1;
+                if rptr >= DEG {
+                    rptr = 0;
+                }
+            }
+            result
+        }; 
+
+        for _ in 0..(10 * DEG) {
+            next_rand();
+        }
+
+        return (0..count).map(|_| next_rand()).collect()
     }
     // this function does not finish in reasonable time with the current loop.
     // i need to optimize it
     pub fn solve_with_rand(&self) -> Option<Vec<(String, u64)>> {
         let rand_inners = self.find_rand_inners();
-
         // no rand inners means no rand.
         if rand_inners.is_empty() {
             return self.try_solve();
         }
 
-        let inner_expr = &rand_inners[0];
+        let inner_expr = &rand_inners[0].clone();
+        // i want this to fail because i call solve_with_rand explicitely knowing there is rand calls in the expression
+        let max_rand_idx = self.max_rand_index().expect("failed to find max_rand");
 
-        //for srand_guess in 0..0xffffffff {
-        for srand_guess in 45483060..45483080 {
-        /*    if (srand_guess % 0x100000) == 0 {
-                println!("guessing: {}", srand_guess);
-            }*/
-            let mut rand1: u64 = 0;
-            let mut rand2: u64 = 0;
-            unsafe {
-                libc::srand(srand_guess);
-                rand1 = libc::rand() as u64;
-                rand2 = libc::rand() as u64;
-            }
-            let rand_values = vec![rand1, rand2];
+        let num_threads = rayon::current_num_threads();
+        let total_seeds = 0xffffffffu64;
+        let chunk_size = (total_seeds / num_threads as u64) as u32;
 
-            let outer_replaced = self.replace_rand_with(&rand_values);
-            if let Some(outer_solution) = outer_replaced.try_solve() {
-                let inner_constraint = SymVar::Eq(
-                    Box::new(inner_expr.clone()),
-                    Box::new(SymVar::Concrete(srand_guess as u64))
-                );
+        //println!("max_rand_idx: {}", max_rand_idx);
 
-                if let Some(inner_solution) = inner_constraint.try_solve() {
-                    return Some(inner_solution)
+        (0..num_threads).into_par_iter().find_map_any(
+            |thread_idx| {
+                let start = (thread_idx as u32).saturating_mul(chunk_size);
+                let end = if thread_idx == num_threads - 1 {
+                    0xffffffff
+                } else {
+                    start.saturating_add(chunk_size)
+                };
+            
+                let cfg = Config::new();
+                let ctx = Context::new(&cfg);
+                let solver = Solver::new(&ctx);
+
+                let mut params = z3::Params::new(&ctx);
+                params.set_u32("timeout", 5000);
+                solver.set_params(&params);
+
+                let mut vars: HashMap<String, BV> = HashMap::new();
+                let mut rand_vars: Vec<BV> = Vec::new();
+                for i in 0..=max_rand_idx {
+                    let name = format!("rand{}", i);
+                    let bv = BV::new_const(&ctx, name.as_str(), 64);
+                    rand_vars.push(bv.clone());
+                    vars.insert(name, bv);
                 }
-            }
-        }
-        return None
+
+                let z3_expr = self.to_z3(&ctx, &mut vars);
+
+                for (name, z3_var) in &vars {
+                    if name.contains("_b") {
+                        solver.assert(&z3_var.bvule(&BV::from_u64(&ctx, 0xff, 64)))
+                    }
+                }
+                solver.assert(&z3_expr._eq(&BV::from_u64(&ctx, 1, 64)));
+
+                for srand_guess in start..=end {
+                    let mut rand_values: Vec<u64> = Vec::new();
+
+                    let rand_values = self.compute_rand_values(srand_guess, max_rand_idx as usize + 1);
+
+                    /*if (srand_guess % 0x100000) == 0 {
+                        println!("guess z3: {:#X}", srand_guess);
+                    }*/
+                    // save solver state
+                    solver.push();
+
+                    // replace rand values with calculated values
+                    for (i, rand_val) in rand_values.iter().enumerate() {
+                        solver.assert(&rand_vars[i]._eq(&BV::from_u64(&ctx, *rand_val, 64)));
+                    }
+
+                    if solver.check() == SatResult::Sat {
+                        let inner_constraint = SymVar::Eq(
+                            Box::new(inner_expr.clone()),
+                            Box::new(SymVar::Concrete(srand_guess as u64))
+                        );
+                        if let Some(solution) = inner_constraint.try_solve() {
+                            return Some(solution);
+                        }
+                    }
+                    solver.pop(1);
+                }
+                return None
+            })
     }
 }
 
@@ -507,8 +535,11 @@ impl SymVar {
             }
             
             // there is no rand to z3
-            SymVar::Rand(a, index) => {
-                panic!("cannot convert rand to z3.");
+            SymVar::Rand(_, index) => {
+                let rand_name = format!("rand{}", index);
+                vars.get(&rand_name)
+                    .expect(&format!("rand variable {} not pre-populated in vars", rand_name))
+                    .clone()
             }
         }
     }
@@ -929,3 +960,22 @@ impl fmt::Display for SymVarVec {
     }
 }
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rand_matches_libc() {
+        for seed in [0u32, 1, 42, 12345, 0xDEADBEEF] {
+            unsafe {
+                libc::srand(seed);
+            }
+            let expected: Vec<u64> = (0..10).map(|_| unsafe { libc::rand() } as u64).collect();
+            let sv = SymVar::concrete(0x0);
+            let actual = sv.compute_rand_values(seed, 10);
+            assert_eq!(expected, actual, "Mismatch for seed {}", seed);
+        }
+    }
+}

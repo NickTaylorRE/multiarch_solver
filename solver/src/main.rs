@@ -11,6 +11,8 @@ use dispatcher::dispatcher;
 use std::env;
 use std::fs;
 
+use rayon::prelude::*;
+
 
 fn main() {
     // == FILE INTAKE == 
@@ -29,6 +31,12 @@ fn main() {
             emu = true;
         }
     }
+
+    // set rayon threads
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(14) // hardcoded for now because this is a POC and not production code.
+        .build_global()
+        .expect("Failed to set rayon threads count");
 
     // read in
     let masm_data: Vec<u8> = fs::read(filename).expect("Failed to read file");
