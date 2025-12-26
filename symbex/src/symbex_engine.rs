@@ -209,6 +209,7 @@ impl SymVar {
     // this function does not finish in reasonable time with the current loop.
     // i need to optimize it
     pub fn solve_with_rand(&self) -> Option<Vec<(String, u64)>> {
+        println!("Brute forcing. This will take a while.");
         let rand_inners = self.find_rand_inners();
         // no rand inners means no rand.
         if rand_inners.is_empty() {
