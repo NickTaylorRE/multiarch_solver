@@ -40,7 +40,6 @@ impl SymbolicContext {
             0x4 => self.B = value,
             0x8 => self.C = value,
             0xc => self.D = value,
-            0x10 => self.E = value,
             _ => panic!("Invalid register offset: {:#x}", offset),
         }
     }
@@ -50,7 +49,6 @@ impl SymbolicContext {
             0x4 => self.B.clone(),
             0x8 => self.C.clone(),
             0xc => self.D.clone(),
-            0x10 => self.E.clone(),
             _ => panic!("Invalid register offset: {:#x}", offset),
         }
     }
@@ -60,7 +58,6 @@ impl SymbolicContext {
             0x4 => 'B',
             0x8 => 'C',
             0xc => 'D',
-            0x10 => 'E',
             _ => '?',
         }
     }
@@ -70,7 +67,6 @@ impl SymbolicContext {
             'B' => 0x4,
             'C' => 0x8,
             'D' => 0xc,
-            'E' => 0x10,
             _ => panic!("Invalid reg name"),
         }
     }

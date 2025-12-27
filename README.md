@@ -1,0 +1,411 @@
+# Table of Contents
+- [The Challenge](#Challenge)
+- [The VM](#The-VM)
+  - [Stack Instruction Set](#Stack-VM)
+  - [Register Instruction Set](#Register-VM)
+- [The Symbex VM](#Symbex-VM)
+  - [Challenge 1](#Challenge-1)
+  - [Challenge 2](#Challenge-2)
+  - [Challenge 3](#Challenge-3)
+- [What Would Be Next](#What-Would-Be-Next)
+
+
+# Challenge
+This challenge is a custom Virtual Machine architecture with 2 instruction sets. One stack machine and one that has register and stack operations. The VM then accepts a .masm program and the command line to execute. The goal of the challenge is to disassemble the instructions in the given `crackme.masm` and solve the 3 challenges within.
+
+I initially sought to understand the VM architecture and build a small disassembler. Once i was done with the disassembler i thought i was set up pretty well to build a symbolic execution VM that i could use to solve the challenges somewhat automatically rather than trying to reimplement the algorithms in another language. This was not the most efficient nor quickest way to solve the challenge and not where i would likely spend my time during a CTF, but the CTF was already closed when i discovered it and this method was fun.
+
+# The VM
+The VM will read in 3 sections from the .masm file. Two of these get mapped into virtual memory. The third is used to change execution modes from one architecture to the other. This arch section is reserved for the VM emulator and not exposed to the program. The three sections in the file are
+
+  1. text section - VM code
+  2. data section - static data like strings and other data types
+  3. arch section - defines which instruction set to use for an instruction, according to the program counter
+
+After the file is parsed and the 3 sections are loaded, the VM initializes its `vm_context`, maps the text section and data section to memory regions, creates a memory region for the stack, and initializes the program counter to 0x1000(beginning of the text section), and the stack pointer is set to 0x8f00.
+
+```
+struct vm_context __packed
+{
+    uint64_t text_section_ptr;
+    uint64_t data_section_ptr;
+    uint64_t stack_section_ptr;
+    uint64_t arch_modifier_buf;
+    uint64_t arch_modifier_buf_len;
+    uint64_t flag_check_callback;   // callback to flag retrieval function
+    uint8_t vm_error;               // error flag when an instruction decodes incorrectly
+    uint8_t privs;
+    uint8_t eflags;
+    uint32_t pc;                    // program counter
+    uint32_t sp;                    // stack pointer
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+};
+```
+*vm_context structure*
+
+Each region is mapped RWX and through individual calls to mmap. The size of each section is hardcoded to 0x1000 so this VM cannot handle large programs.
+so the total ranges for each section is
+  1. text = 0x1000 - 0x1fff
+  2. data = 0x2000 - 0x2fff
+  3. stack = 0x8000 - 0x8fff
+
+# Stack VM
+The stack VM instruction set is very simple and easy to parse. Each instruction is 5 bytes with just 1 byte defining the opcode and a 4 byte operand. Each instruction is 5 bytes even if the operands don't require a full 4 bytes or the operation has no usable operands. The stack VM also implements a very standard stack machine where an operation such as an ADD would pop two values off the stack, add them, then place the result back onto the stack.
+
+```
+struct stackvm_instruction __packed
+{
+    uint8_t opcode;
+    uint32_t operand;
+};
+```
+*stack vm instruction*
+
+Each 1 byte opcode maps very cleanly to an operation.
+```
+0x10 => S.LDB
+0x20 => S.LDW
+0x30 => S.PUSHP
+0x40 => S.LDP
+0x50 => S.POPP
+0x60 => S.ADDP
+0x61 => S.SUBP
+0x62 => S.XORP
+0x63 => S.ANDP
+0x70 => S.JMP
+0x71 => S.JE
+0x72 => S.JNE
+0x80 => S.CMPP
+0xa0 => S.SYSCALL
+    0 => fscanf
+    1 => unsupported syscall
+    2 => fput
+    3 => srand
+    4 => wrand
+    5 => flag_success
+    6 => heap_write
+    _ => UNKNOWN
+0xff => S.HLT
+_ => S.INVALID
+```
+*supported operations in the stack machine. S. stands for Stack operation*
+
+The only weirdness in the stack machine is that some operations support pushing `Byte`(8b), `Word`(16b), or `Pointer`(32b) sized data to the stack. This means a program could have 2 `LDW` instructions followed by a `POPP`. The result would be 2 word sized immediates loaded to the stack, then both poped off as 1 pointer sized value.
+
+
+# Reg VM
+The reg VM instruction set is much more complicated, with some inconsistent encodings between the different types of instructions.
+
+TODO
+
+# Symbex VM
+The structure for the disassembler matches the structure in the challenge VM quite closely with the only difference being the challenge VM is just a VM, and mine is on top of a symbex engine.
+```
+                       ┌─> stack_decoder ─┐
+                       │                     │
+    dispatcher ────────┤                     ├──> symbex_vm ──> symbex_engine ──> z3
+        ^              │                     │
+        │              └─> reg_decoder ───┘
+        v
+    get_pc_arch
+```
+*symbex_vm architecture*
+
+dispatcher [dispatcher:118](solver/src/dispatcher.rs#L118)
+  - Determines which instruction set the next instruction is for. 
+  - Reads that instruction into the correct data type for the respective decoder. 
+  - Calls the correct instruction decoder. 
+  - Allow out of band changes to be made at certain executing instructions. Like breakpoints. [dispatcher:124](solver/src/dispatcher.rs#L124)
+  
+get_pc_arch [dispatcher:20](solver/src/dispatcher.rs#L20)
+  - Reads a value from the arch buffer corresponding to the program counter. 
+  - Parses out which decoder should be used. [dispatcher:30](solver/src/dispatcher.rs#L30)
+  
+stack_decoder [stack_decoder:18](solver/src/stack_decoder.rs#L18)
+  - Matches the instruction opcode against defined instructions. 
+  - Format a mnemonic and argument(disassembling) for the reverser to understand the program. 
+  - Call a symbex_vm function to update the state of the symbex_vm accordingly.
+
+stack_decoder [reg_decoder:18](solver/src/reg_decoder.rs#L18)
+  - Parses the instruction opcode against defined instructions. 
+  - Format a mnemonic and argument(disassembling) for the reverser to understand the program. 
+  - Call a symbex_vm function to update the state of the symbex_vm accordingly.
+
+
+
+```Read in 757 bytes from ../crackme.masm
+section type:1, section addr:19, section size: 357
+section type:2, section addr:376, section size: 336
+section type:3, section addr:712, section size: 45
+0x0: S.LDB(0x10), 75(0x4B)
+0x5: S.PUSHP(0x30), 8192(0x2000)
+0xA: S.LDB(0x10), 2(0x2)
+0xF: S.SYSCALL(0xA0), (0x0)
+0x14: S.LDB(0x10), 43(0x2B)
+0x19: S.PUSHP(0x30), 8365(0x20AD)
+0x1E: S.LDB(0x10), 2(0x2)
+0x23: S.SYSCALL(0xA0), (0x0)
+0x28: S.LDB(0x10), 0(0x0)
+0x2D: S.SYSCALL(0xA0), (0x0)
+0x32: S.LDW(0x20), 4919(0x1337)
+0x37: S.LDW(0x20), 1337(0x539)
+0x3C: S.PUSHP(0x30), 140989193(0x8675309)
+0x41: S.XORP(0x62), (0x0)
+0x46: S.ADDP(0x60), (0x0)
+0x4B: S.PUSHP(0x30), 2863311530(0xAAAAAAAA)
+0x50: S.CMPP(0x80), (0x0)
+0x55: S.JNE(0x72), 0x10B(0x110B)
+0x5A: R.MOV.RI(0xC5), reg:A, imm:0x2
+0x5F: R.MOV.RI(0xCD), reg:B, imm:0x20D8
+0x64: R.MOV.RI(0xD5), reg:C, imm:0x1E
+0x69: R.SYSCALL(0x1), 
+0x6A: R.SUB.SI(0x31), imm:0x20
+0x70: R.MOV.RS(0xCE), reg:B
+0x71: R.PUSH.R(0x12), reg:B
+0x72: R.MOV.RI(0xD5), reg:C, imm:0x20
+0x77: R.MOV.RI(0xC5), reg:A, imm:0x1
+0x7C: R.SYSCALL(0x1), 
+0x7D: R.POP.R(0x15), reg:A
+0x7E: R.MOV.RI(0xCD), reg:B, imm:0x20
+0x83: R.CALL(0x60), 0x11C
+0x88: R.CMP.RI(0x80), reg:A, imm:0x7331
+0x8D: R.JNE(0x63), 0x10B
+0x92: R.MOV.RI(0xC5), reg:A, imm:0x0
+0x97: S.LDB(0x10), 90(0x5A)
+0x9C: S.PUSHP(0x30), 8438(0x20F6)
+0xA1: S.LDB(0x10), 2(0x2)
+0xA6: S.SYSCALL(0xA0), (0x0)
+0xAB: R.SYSCALL(0x1), 
+0xAC: R.MOV.RR(0xC8), reg2:B, reg1:A
+0xAD: R.MOV.RI(0xC5), reg:A, imm:0x3
+0xB2: R.SYSCALL(0x1), 
+0xB3: R.MOV.RI(0xD5), reg:C, imm:0x0
+0xB8: R.CALL(0x60), 0x145
+0xBD: R.PUSH.I(0x10), 0xFFFFFF
+0xC2: R.PUSH.R(0x11), reg:A
+0xC3: S.ANDP(0x63), (0x0)
+0xC8: S.PUSHP(0x30), 12648430(0xC0FFEE)
+0xCD: S.CMPP(0x80), (0x0)
+0xD2: S.JE(0x71), 0xEC(0x10EC)
+0xD7: R.ADD.RI(0x21), reg:C, imm:0x1
+0xDD: R.CMP.RI(0x82), reg:C, imm:0xA
+0xE2: R.JE(0x62), 0x10B
+0xE7: R.JMP(0x68), 0xB8
+0xEC: R.MOV.RI(0xD5), reg:C, imm:0x39
+0xF1: R.MOV.RI(0xCD), reg:B, imm:0x2074
+0xF6: R.MOV.RI(0xC5), reg:A, imm:0x2
+0xFB: R.SYSCALL(0x1), 
+0xFC: S.LDB(0x10), 5(0x5)
+0x101: S.SYSCALL(0xA0), (0x0)
+0x106: S.JMP(0x70), 0x11B(0x111B)
+0x10B: R.MOV.RI(0xD5), reg:C, imm:0x29
+0x110: R.MOV.RI(0xCD), reg:B, imm:0x204B
+0x115: R.MOV.RI(0xC5), reg:A, imm:0x2
+0x11A: R.SYSCALL(0x1), 
+0x11B: R.HLT(0x0), 
+0x11C: R.MOV.RR(0xD0), reg2:C, reg1:A
+0x11D: R.ADD.RR(0x20), reg1:A, reg2:B
+0x11F: R.PUSH.R(0x11), reg:A
+0x120: R.MOV.RI(0xCD), reg:B, imm:0x0
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x142: R.MOV.RR(0xC1), reg2:A, reg1:B
+0x143: R.RET(0x61), 
+0x144: S.INVALID(0x1), (0x133700C5)
+0x145: R.MOV.RI(0xC5), reg:A, imm:0x133700
+0x14A: S.LDB(0x10), 4(0x4)
+0x14F: S.SYSCALL(0xA0), (0x0)
+0x154: R.POP.R(0x16), reg:B
+0x155: R.XOR.RR(0x40), reg1:A, reg2:B
+0x157: R.PUSH.R(0x11), reg:A
+0x158: S.PUSHP(0x30), 4076008178(0xF2F2F2F2)
+0x15D: S.XORP(0x62), (0x0)
+0x162: R.POP.R(0x15), reg:A
+0x163: R.RET(0x61), ```
+
+
+
+
+
+
+
+
+
+***trace***
+```Read in 757 bytes from ../crackme.masm
+section type:1, section addr:19, section size: 357
+section type:2, section addr:376, section size: 336
+section type:3, section addr:712, section size: 45
+0x0: S.LDB(0x10), 75(0x4B)
+0x5: S.PUSHP(0x30), 8192(0x2000)
+0xA: S.LDB(0x10), 2(0x2)
+0xF: S.SYSCALL(0xA0), fputs, Welcome to the multiarch of madness! Let's see how well you understand it.
+(0x0)
+0x14: S.LDB(0x10), 43(0x2B)
+0x19: S.PUSHP(0x30), 8365(0x20AD)
+0x1E: S.LDB(0x10), 2(0x2)
+0x23: S.SYSCALL(0xA0), fputs, Challenge 1 - What's your favorite number? (0x0)
+0x28: S.LDB(0x10), 0(0x0)
+0x2D: S.SYSCALL(0xA0), fscanf(0x0)
+0x32: S.LDW(0x20), 4919(0x1337)
+0x37: S.LDW(0x20), 1337(0x539)
+0x3C: S.PUSHP(0x30), 140989193(0x8675309)
+0x41: S.XORP(0x62), (0x0)
+0x46: S.ADDP(0x60), (0x0)
+0x4B: S.PUSHP(0x30), 2863311530(0xAAAAAAAA)
+0x50: S.CMPP(0x80), (0x0)
+Solution found: input_b0, 0x8F
+Solution found: input_b1, 0x5A
+Solution found: input_b2, 0x54
+Solution found: input_b3, 0x7A
+0x55: S.JNE(0x72), 0x10B(0x110B)
+0x5A: R.MOV.RI(0xC5), reg:A, imm:0x2
+0x5F: R.MOV.RI(0xCD), reg:B, imm:0x20D8
+0x64: R.MOV.RI(0xD5), reg:C, imm:0x1E
+0x69: R.SYSCALL(0x1), fputs(0x2), Challenge 2 - Tell me a joke: 
+0x6A: R.SUB.SI(0x31), imm:0x20
+0x70: R.MOV.RS(0xCE), reg:B
+0x71: R.PUSH.R(0x12), reg:B
+0x72: R.MOV.RI(0xD5), reg:C, imm:0x20
+0x77: R.MOV.RI(0xC5), reg:A, imm:0x1
+0x7C: R.SYSCALL(0x1), fgetc(0x1)
+0x7D: R.POP.R(0x15), reg:A
+0x7E: R.MOV.RI(0xCD), reg:B, imm:0x20
+0x83: R.CALL(0x60), 0x11C
+0x11C: R.MOV.RR(0xD0), reg2:C, reg1:A
+0x11D: R.ADD.RR(0x20), reg1:A, reg2:B
+0x11F: R.PUSH.R(0x11), reg:A
+0x120: R.MOV.RI(0xCD), reg:B, imm:0x0
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x137: R.ADD.RI(0x21), reg:C, imm:0x4
+0x13D: R.JMP(0x68), 0x125
+0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
+0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
+0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
+0x12F: R.POP.R(0x15), reg:A
+0x130: R.PUSH.R(0x11), reg:A
+0x131: R.CMP.RR(0x72), reg1:C, reg2:A
+0x132: R.JE(0x62), 0x142
+0x142: R.MOV.RR(0xC1), reg2:A, reg1:B
+0x143: R.RET(0x61), 
+0x88: R.CMP.RI(0x80), reg:A, imm:0x7331
+Solution found: input_2_b0, 0x46
+Solution found: input_2_b1, 0x91
+Solution found: input_2_b2, 0x0
+Solution found: input_2_b3, 0x0
+0x8D: R.JNE(0x63), 0x10B
+0x92: R.MOV.RI(0xC5), reg:A, imm:0x0
+0x97: S.LDB(0x10), 90(0x5A)
+0x9C: S.PUSHP(0x30), 8438(0x20F6)
+0xA1: S.LDB(0x10), 2(0x2)
+0xA6: S.SYSCALL(0xA0), fputs, Challenge 3 - Almost there! But can you predict the future?
+What number am I thinking of? (0x0)
+0xAB: R.SYSCALL(0x1), fscanf(0x0)
+0xAC: R.MOV.RR(0xC8), reg2:B, reg1:A
+0xAD: R.MOV.RI(0xC5), reg:A, imm:0x3
+0xB2: R.SYSCALL(0x1), srand(0x3)
+0xB3: R.MOV.RI(0xD5), reg:C, imm:0x0
+0xB8: R.CALL(0x60), 0x145
+0x145: R.MOV.RI(0xC5), reg:A, imm:0x133700
+0x14A: S.LDB(0x10), 4(0x4)
+0x14F: S.SYSCALL(0xA0), rand(0x4)(0x0)
+0x154: R.POP.R(0x16), reg:B
+0x155: R.XOR.RR(0x40), reg1:A, reg2:B
+0x157: R.PUSH.R(0x11), reg:A
+0x158: S.PUSHP(0x30), 4076008178(0xF2F2F2F2)
+0x15D: S.XORP(0x62), (0x0)
+0x162: R.POP.R(0x15), reg:A
+0x163: R.RET(0x61), 
+0xBD: R.PUSH.I(0x10), 0xFFFFFF
+0xC2: R.PUSH.R(0x11), reg:A
+0xC3: S.ANDP(0x63), (0x0)
+0xC8: S.PUSHP(0x30), 12648430(0xC0FFEE)
+0xCD: S.CMPP(0x80), (0x0)
+Brute forcing. This will take a while.
+Solution found: input_3_b0, 0x2
+Solution found: input_3_b1, 0xB6
+Solution found: input_3_b2, 0x4
+Solution found: input_3_b3, 0x3C
+
+real	36m23.351s
+user	142m31.700s
+sys	83m30.928s```
