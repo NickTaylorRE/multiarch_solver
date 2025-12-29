@@ -29,7 +29,7 @@ impl SymbolicContext {
             C: SymVarVec::new(4),
             D: SymVarVec::new(4),
             flags: SymVar::concrete(0),
-            sp: 0xfff,
+            sp: 0xf00,
             srand_seed: None,
             rand_counter: 0
         }

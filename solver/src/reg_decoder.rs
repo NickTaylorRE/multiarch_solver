@@ -226,12 +226,6 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 1 => {
                     let input_pointer = context.B.try_concrete_u32().expect("failed to extract B in fgetc") as usize;
                     let mut input_size = context.C.try_concrete_u32().expect("failed to extract C in fgetc") as usize;
-                    //input.push(SymVarVec::concrete_u8(0)); // null terminator
-                    // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
-                    // to hash 4 bytes past the end of the string.
-                    // unfortunately, this is specific to this crackme and not a failure of the VM,
-                    // but i have to deal with it anyway.
-                    //input_size += 4;
                     let mut input = SymVarVec::symbolic_n("input_2".to_string(), input_size);
                     input.reverse();
                     context.stack.assign(input_pointer+input.len(), &input);
@@ -302,15 +296,6 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             mnemonic = "R.SUB.SI".to_string();
             argument = format!("imm:{:#X}", immediate);
             if *emu {
-                // there is an off by 1 error in the crackme.masm code that causes the hashing algorithm
-                // to hash 4 bytes past the end of the string.
-                // unfortunately, this is specific to this crackme and not a failure of the VM,
-                // but i have to deal with it anyway.
-                immediate += 4;
-                // adding 4 and doing nothing else works only because the hashing algorithm in the crackme
-                // multiplies the extra 4 bytes from the string, instantiated to 0, then xoring.
-                // the multiplication ends with 0, and the xor with 0 changes nothing about our hash.
-                // i suspect the VM also has memory instantiated to 0 that doesn't affect the hash just like we have here.
                 context.stack.assign(context.sp, &SymVarVec::concrete_n(immediate as usize)); // assign can grow if needed
                 context.sp -= immediate as usize;
             }

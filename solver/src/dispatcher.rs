@@ -145,6 +145,7 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                     } else {
                         println!("No solution for 2");
                     }
+                    return
                 },
                 0xD2 => {
                     //println!("flags:{}",context.flags);
