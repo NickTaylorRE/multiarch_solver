@@ -269,12 +269,15 @@ section type:3, section addr:712, section size: 45
 0x0: S.LDB(0x10), 75(0x4B)
 0x5: S.PUSHP(0x30), 8192(0x2000)
 0xA: S.LDB(0x10), 2(0x2)
-0xF: S.SYSCALL(0xA0), fputs, Welcome to the multiarch of madness! Let's see how well you understand it.
+0xF: S.SYSCALL(0xA0), fputs, 
+Welcome to the multiarch of madness! 
+Let's see how well you understand it.
 (0x0)
 0x14: S.LDB(0x10), 43(0x2B)
 0x19: S.PUSHP(0x30), 8365(0x20AD)
 0x1E: S.LDB(0x10), 2(0x2)
-0x23: S.SYSCALL(0xA0), fputs, Challenge 1 - What's your favorite number? (0x0)
+0x23: S.SYSCALL(0xA0), fputs, 
+Challenge 1 - What's your favorite number? (0x0)
 0x28: S.LDB(0x10), 0(0x0)
 0x2D: S.SYSCALL(0xA0), fscanf(0x0)
 0x32: S.LDW(0x20), 4919(0x1337)
@@ -292,7 +295,8 @@ Solution found: input_b3, 0x7A
 0x5A: R.MOV.RI(0xC5), reg:A, imm:0x2
 0x5F: R.MOV.RI(0xCD), reg:B, imm:0x20D8
 0x64: R.MOV.RI(0xD5), reg:C, imm:0x1E
-0x69: R.SYSCALL(0x1), fputs(0x2), Challenge 2 - Tell me a joke: 
+0x69: R.SYSCALL(0x1), fputs(0x2), 
+Challenge 2 - Tell me a joke: 
 0x6A: R.SUB.SI(0x31), imm:0x20
 0x70: R.MOV.RS(0xCE), reg:B
 0x71: R.PUSH.R(0x12), reg:B
@@ -335,7 +339,9 @@ Solution found: input_2_b3, 0x0
 0x97: S.LDB(0x10), 90(0x5A)
 0x9C: S.PUSHP(0x30), 8438(0x20F6)
 0xA1: S.LDB(0x10), 2(0x2)
-0xA6: S.SYSCALL(0xA0), fputs, Challenge 3 - Almost there! But can you predict the future?
+0xA6: S.SYSCALL(0xA0), fputs, 
+Challenge 3 - Almost there! 
+But can you predict the future?
 What number am I thinking of? (0x0)
 0xAB: R.SYSCALL(0x1), fscanf(0x0)
 0xAC: R.MOV.RR(0xC8), reg2:B, reg1:A
@@ -584,6 +590,7 @@ Any combination of these expressions blows up the problem and solve time exponen
 </td>
 <td width="50%">
 
+***Challenge 3 code***
 ```rust
 0x92: R.MOV.RI(0xC5), reg:A, imm:0x0
 0x97: S.LDB(0x10), 90(0x5A)
