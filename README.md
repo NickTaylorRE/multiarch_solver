@@ -13,7 +13,7 @@
 # Challenge
 This challenge is a custom Virtual Machine architecture with 2 instruction sets. One stack machine and one that has register and stack operations. The VM then accepts a .masm program and the command line to execute. The goal of the challenge is to disassemble the instructions in the given `crackme.masm` and solve the 3 challenges within.
 
-I initially sought to understand the VM architecture and build a small disassembler. Once i was done with the disassembler i thought i was set up pretty well to build a symbolic execution VM that i could use to solve the challenges somewhat automatically rather than trying to reimplement the algorithms in another language. This was not the most efficient nor quickest way to solve the challenge and not where i would likely spend my time during a CTF, but the CTF was already closed when i discovered it and this method was fun.
+I initially sought to understand the VM architecture and build a small disassembler. Once i was done with the disassembler i thought i was set up pretty well to build a symbolic execution VM that i could use to solve the challenges somewhat automatically rather than trying to reimplement the algorithms in another language. This was not the most efficient nor quickest way to solve the challenge and not where i would likely spend my time during a CTF. But the CTF was already closed when i discovered it and this method was fun.
   
 
 # The VM
@@ -55,7 +55,7 @@ so the total ranges for each section is
   
   
 # Stack VM
-The stack VM instruction set is very simple and easy to parse. Each instruction is 5 bytes with just 1 byte defining the opcode and a 4 byte operand. Each instruction is 5 bytes even if the operands don't require a full 4 bytes or the operation has no usable operands. The stack VM also implements a very standard stack machine where an operation such as an ADD would pop two values off the stack, add them, then place the result back onto the stack.
+The stack VM instruction set is very simple and easy to parse. Each instruction is 5 bytes with just 1 byte defining the opcode and a 4 byte operand. Each instruction is 5 bytes even if the operands don't require a full 4 bytes or the operation has no usable operands. The stack VM also implements a very standard stack machine where an operation such as an `ADD` would pop two values off the stack, add them, then place the result back onto the stack.
 
 ```
 struct stackvm_instruction __packed
@@ -95,7 +95,7 @@ _ => S.INVALID
 ```
 *supported operations in the stack machine. S. stands for Stack operation*
 
-The only weirdness in the stack machine is that some operations support pushing `Byte`(8b), `Word`(16b), or `Pointer`(32b) sized data to the stack. This means a program could have 2 `LDW` instructions followed by a `POPP`. The result would be 2 word sized immediates loaded to the stack, then both poped off as 1 pointer sized value. 1 `PUSHP` followed by 4 `POPB` instructions is also possible. Something like this may even just be an optimization, where the bytes aren't totally related to eachother.
+The only weirdness in the stack machine is that some operations support pushing `Byte`(8b), `Word`(16b), or `Pointer`(32b) sized data to the stack. This means a program could have 2 `LDW` instructions followed by a `POPP`. The result would be 2 word sized immediates loaded to the stack, then both poped off as 1 pointer sized value. 1 `PUSHP` followed by 4 `POPB` instructions is also possible. Something like this may even just be an optimization, where the bytes aren't guaranteed to be used together.
 
 
 # Reg VM
@@ -125,24 +125,24 @@ dispatcher [dispatcher:118](solver/src/dispatcher.rs#L118)
   
 get_pc_arch [dispatcher:20](solver/src/dispatcher.rs#L20)
   - Reads a value from the arch buffer corresponding to the program counter. 
-  - Parses out which decoder should be used. [dispatcher:30](solver/src/dispatcher.rs#L30)
+  - Parses out which decoder should be used. 
   
-stack_decoder
+stack_decoder [stack_decoder](solver/src/stack_decoder.rs)
   - Matches the instruction opcode against defined instructions. 
   - Format a mnemonic and argument(disassembling) for the reverser to understand the program. 
   - Call a symbex_vm function to update the state of the symbex_vm accordingly.
 
-reg_decoder
+reg_decoder [reg_decoder](solver/src/reg_decoder.rs)
   - Parses the instruction opcode against defined instructions. 
   - Format a mnemonic and argument(disassembling) for the reverser to understand the program. 
   - Call a symbex_vm function to update the state of the symbex_vm accordingly.
 
-symbex_vm
+symbex_vm [symbex_vm](symbex/src/symbex_vm.rs)
   - Performs the actual operations and updates the context.
   - Mostly a wrapper around the symbex engine with functions named after the operations found in the disassembly for convenience in writing the disassembler.
   - Manages the context.
 
-symbex_engine
+symbex_engine [symbex_engine](symbex/src/symbex_engine.rs)
   - Exposes the primitive SymVar symbolic variable which represents a single byte. 
   - Exposes the SymVarVec which is a vector of SymVars. This acts as a vector of bytes effectively.
   - Provides instantiation, arithmetic operations, bitwise operations, and equality operations for SymVar and SymVarVec.
@@ -150,8 +150,9 @@ symbex_engine
   
   
 The Symbex VM has 2 operating modes. A straight linear disassembly, and an emulation mode. The emulation mode actually performs symbolic execution, solving, and produces an instruction trace rather than a linear disassembly. this is good enough for this challenge because there are no gigantic loops, but would likely need to be changed for more complex algorithms.
-The emulation mode also provides dereferencing of strings and syscall numbers since it has the ability to do that. the linear disassembly just disassembles with no attempt to help the reverser see strings or syscall numbers.
+The emulation mode also provides dereferencing of strings and syscall numbers since it has the data available when decoding the instruction. the linear disassembly just disassembles with no attempt to help the reverser see strings or syscall numbers.
   
+
 <table>
 <tr valign="top">
 <td width="50%">
@@ -314,69 +315,7 @@ Solution found: input_b3, 0x7A
 0x132: R.JE(0x62), 0x142
 0x137: R.ADD.RI(0x21), reg:C, imm:0x4
 0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
-0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
-0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
-0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
-0x12F: R.POP.R(0x15), reg:A
-0x130: R.PUSH.R(0x11), reg:A
-0x131: R.CMP.RR(0x72), reg1:C, reg2:A
-0x132: R.JE(0x62), 0x142
-0x137: R.ADD.RI(0x21), reg:C, imm:0x4
-0x13D: R.JMP(0x68), 0x125
+// 7 loops removed for readability
 0x125: R.MOV.RR(0xDA), reg2:D, reg1:C dereferenced
 0x127: R.MUL.RI(0x51), reg:D, imm:0xCAFEBABE
 0x12D: R.XOR.RR(0x40), reg1:B, reg2:D
@@ -458,7 +397,7 @@ For the purpose of solving for the challenge conditions, each conditional jump w
   
 Solving after the `CMPP` operation was as simple as calling the [SymVar::try_solve()](symbex/src/symbex_engine.rs#L62) method on the `SymVar` stored in the [SymbolicContext.flags](symbex/src/symbex_engine.rs#L62) register. `try_solve` simply converts the `SymVar` variables to z3 variables, assigns the constraints, then lets z3 solve and get a model which satisfies the constraints.  
   
-The output shows each byte value individually. Inputting this value back into the challenge would be as simple as concattenating the bytes Big Endian and converting to decimal to be entered in the command line
+The output shows each byte value individually. Inputing this value back into the challenge would be as simple as concattenating the bytes Big Endian and converting to decimal to be entered in the command line
 
 
 </td>
@@ -495,13 +434,14 @@ Solution found: input_b3, 0x7A
 </td>
 </table>
   
-  
+
+
 # Challenge 2
 <table>
 <tr valign="top">
 <td width="50%">
 
-Challenge 2 was a slightly more complicated hashing algorithm. Luckily it was not complicated enough for z3 to fail at. This challenge accepts an up to 0x20 byte string at the command line, hashes each byte of that string 4 bytes at a time, then compares the result to a hardcoded result. Below is rust code showing the algorithm.
+Challenge 2 was a slightly more complicated hashing algorithm. Luckily the hashing loop only runs 9 times. Symbolic execution engines unroll loops into the expression tree, so large or unbounded loops can cause expression blowup. This challenge accepts an up to 0x20 byte string at the command line, hashes each byte of that string 4 bytes at a time, then compares the result to a hardcoded result. Below is rust code showing the algorithm.  
 ```rust
 accumulator = 0;
 for i in (0..0x20).step_by(4) {
@@ -513,19 +453,13 @@ if(xor_result==0x7331) {
 }
 ```
 The example above uses an iterator for the loop but the crackme code uses pointer arithmetic on the current position in the string and the end of the string as the condition to exit the loop. There is also code to push the length of the string to the stack and pop it later to be used as the length of the string. All of this required me to structure the `SymbolicContext` stack in the same or similar way that the challenge VM creates its stack.  
-  
-In short, i have a [SymbolicContext.stack](symbex/src/symbex_engine.rs#L26) that gets instantiated to a large size. Most of the values will be 0 and unused. Then there is the [SymbolicContext.sp](symbex/src/symbex_engine.rs#L32) that gets instantiated to the same value that the stack in the challenge VM gets instantiated to. All of this allows pointer arithmetic and proper stack growth. I was able to solve the first challenge with a stack that was just a 0 length `SymVarVec` that grew up rather than down, and pushed and popped values as needed. This challenge required me to remove pushing and popping and abstract those operations through the [SymVarVec::assign](symbex/src/symbex_engine.rs#L747) operation. So the symbex vm doesn't push and pop to the Vec like Vec.push() supports, it now assigns values up to a specified length to the prebuilt stack, and decrements the stack pointer.  
-  
-The syscall `fgetc` in this challenge supports an input up to 0x20 in length and z3 finds solutions of size 0x20, but there are solutions that are much smaller. So i change the size of the symbolic input with a [breakpoint](solver/src/dispatcher.rs#L138) so that the solution is easier to input at the command line. 
 
-There is a bug in the crackme code that makes the loop run 1 extra time. The algorithm will do 1 iteration worth of work at the current work location, evaluate whether the current work pointer is equal to the end of the string, *Then* add 4 to the current work pointer. This means the algorithm will do work for 4 bytes after the end of the string. This is technically undefined behavior as the data after the string could be anything in a real program. In this little crackme though, the data will be the same each time.  
+In short, i have a [SymbolicContext.stack](symbex/src/symbex_engine.rs#L26) that gets instantiated to a large size. Most of the values will be 0 and unused. Then there is the [SymbolicContext.sp](symbex/src/symbex_engine.rs#L32) that gets instantiated to the same value that the stack pointer in the challenge VM gets instantiated to. All of this allows pointer arithmetic and proper stack growth. I was able to solve the first challenge with a stack that was just a 0 length `SymVarVec` that grew up rather than down, and pushed and popped values as needed. This challenge required me to remove pushing and popping and abstract those operations through the [SymVarVec::assign](symbex/src/symbex_engine.rs#L747) operation. So the symbex vm doesn't push and pop to the Vec like Vec.push() supports, it now assigns values up to a specified length to the prebuilt stack, and decrements the stack pointer.  
   
-Luckily for our solving, we don't have to think about this problem. When the string is placed on the stack, it is the only thing on the stack and there is a 255 byte buffer of 0's at the top of the stack. This means the hashing algorithm overflows into a buffer that is all 0's. This also only works because this algorithm does not change the accumulator when processing a 0x00. The value stays the same. 0x00's not changing the result of the hashing algorithm may be intentional by the challenge author since the input buffer is always 0x20 bytes long and the loop will always run 0x20 times despite the length of the users input. So the algorithm may just not change the hash on 0x00 bytes to cheaply accommodate shorter inputs. However, that algorithm fact along with the general program structure of only having the input string on the stack at the time of processing works out perfectly and we can just ignore the problem!  
-The challenge VM would fail randomly if the data after the input was non-deterministic. If the data was deterministic and the symbex vm had to factor for that, i would have to discover what those values were statically add that as concrete values. Symbolizing those 4 bytes then solving for them may work if there are a small number of inputs that satisfy the constraints of the hashing algorithm. Though having run this program many times, i think there would be too many inputs which satisfy the algorithm to just guess and check.
-
 </td>
 <td width="50%">
 
+***Challenge 2 code***
 ```rust
 0x5A: R.MOV.RI(0xC5), reg:A, imm:0x2
 0x5F: R.MOV.RI(0xCD), reg:B, imm:0x20D8
@@ -564,18 +498,137 @@ The challenge VM would fail randomly if the data after the input was non-determi
 0x142: R.MOV.RR(0xC1), reg2:A, reg1:B
 0x143: R.RET(0x61), 
 0x88: R.CMP.RI(0x80), reg:A, imm:0x7331
-Solution found: input_2_b0, 0x46
-Solution found: input_2_b1, 0x91
-Solution found: input_2_b2, 0x0
-Solution found: input_2_b3, 0x0
+Solution found: input_2_b0, 0xA8
+Solution found: input_2_b1, 0x51
+Solution found: input_2_b10, 0x48
+Solution found: input_2_b11, 0x59
+Solution found: input_2_b12, 0x70
+Solution found: input_2_b13, 0x5
+Solution found: input_2_b14, 0x0
+Solution found: input_2_b15, 0xA0
+Solution found: input_2_b16, 0xFA
+Solution found: input_2_b17, 0x39
+Solution found: input_2_b18, 0x57
+Solution found: input_2_b19, 0x6
+Solution found: input_2_b2, 0x3C
+Solution found: input_2_b20, 0x3C
+Solution found: input_2_b21, 0x19
+Solution found: input_2_b22, 0x0
+Solution found: input_2_b23, 0x1F
+Solution found: input_2_b24, 0x36
+Solution found: input_2_b25, 0x86
+Solution found: input_2_b26, 0x22
+Solution found: input_2_b27, 0xF2
+Solution found: input_2_b28, 0x8F
+Solution found: input_2_b29, 0x8F
+Solution found: input_2_b3, 0xC3
+Solution found: input_2_b30, 0x3A
+Solution found: input_2_b31, 0xEA
+Solution found: input_2_b4, 0xE4
+Solution found: input_2_b5, 0x23
+Solution found: input_2_b6, 0xE7
+Solution found: input_2_b7, 0xFA
+Solution found: input_2_b8, 0x3D
+Solution found: input_2_b9, 0xB8
 0x8D: R.JNE(0x63), 0x10B
 ```
 
 </td>
 </td>
 </table>
+
+### Off by 1 bug
+There is a bug in the second challenge of the crackme code that makes the hashing loop run 1 extra time. The algorithm will do 1 iteration worth of work at the current work location, evaluate whether the current work pointer is equal to the end of the string, *Then* add 4 to the current work pointer. This means the algorithm will do work for 4 bytes after the end of the string. This is technically undefined behavior as the data after the string could be anything in a real program. In this little crackme though, the data will be the same each time.  
+  
+Luckily for our solving, we don't have to think about this problem. When the string is placed on the stack, it is the only thing on the stack and there is a 255 byte buffer of 0's at the top of the stack. This means the hashing algorithm overflows into a buffer that is all 0's. This also only works because this algorithm does not change the accumulator when processing a 0x00. The value stays the same. 0x00's not changing the result of the hashing algorithm may be intentional by the challenge author since the input buffer is always 0x20 bytes long and the loop will always run 0x20 times despite the length of the users input. So the algorithm may just not change the hash on 0x00 bytes to cheaply accommodate shorter inputs. However, that algorithm fact along with the general program structure of only having the input string on the stack at the time of processing works out perfectly and we can just ignore the problem!  
+  
+The challenge VM would fail randomly if the data after the input was non-deterministic. If the data was deterministic and the symbex vm had to factor for that, i would have to discover what those values were statically and add that as concrete values to the expression before solving. Symbolizing those 4 bytes then solving for them may work if there are a small number of inputs that satisfy the constraints of the hashing algorithm. Though having run this program many times, i think there would be too many inputs which satisfy the algorithm to just guess and check.
+  
+# Challenge 3
+<table>
+<tr valign="top">
+<td width="50%">
+Challenge 3 would be a simple algorithm if not for the rand calls. Below is the code showing the algorithm
+
+```rust
+srand(input)
+for i in 0..10 {
+    let rand1 = rand() & 0xffff;
+    let rand2 = rand() << 0x10;
+    let fullrand = rand1 | rand2;
+    let value = (fullrand ^ 0x133700 ^ 0xf2f2f2f2) & 0xffffff
+    if value == 0xc0ffee {
+      correct
+    }
+}
+```
+
+Default rand uses `TYPE_3` random number generator which is a modmul based algorithm. The source for the seed algorithm in glibc is available [here](https://elixir.bootlin.com/glibc/glibc-2.42.9000/source/stdlib/random_r.c#L176).  
+Trying to build the seed algorithm into the symbex engine proved completely unsuccessful as the rust symbex engine isn't the most efficient. Encoding the problem into a z3 expression worked but z3 was unable to solve for my test cases. Bitwuzla was also unable to solve the problem.
+  
+I settled on brute forcing any rand calls [SymVar::solve_with_rand](symbex/src/symbex_engine.rs#L211). This increases the complexity of solving by a lot but does effectively break down our problem into solvable parts.  
+The engine needs to 
+  1. Encode rand calls in the symbolic expression preserving the order of the calls. [Rand](symbex/src/symbex_engine.rs#L405)
+  2. Extract rand calls at solve time to brute force, splitting up the expression. [rand_inners](symbex/src/symbex_engine.rs#L219)
+  3. Enter a loop where the engine guesses a seed, gets rand values, updates the symbolic rands with the guessed concrete ones, and attempts to solve. [brute force loop](symbex/src/symbex_engine.rs#L264)
+  4. Once a solution has been found for the outer expression, the engine needs to make sure the inner expression (inside the srand call) solves with the guessed srand value. [inner solve](symbex/src/symbex_engine.rs#L285)
+  5. If it does, we're done. otherwise we need to continue brute forcing.
+  
+Brute forcing is of course very slow so [multithreading](symbex/src/symbex_engine.rs#L229) the issue becomes necessary. With 14 threads, this stage of the challenge takes about 30 minutes to solve. Could be worse overall.  
+  
+The current implementation works well for this specific challenge where there is only 1 seed, but isn't set up for more complex expresions.  
+If there was more symbolic seeds like `srand(x) + srand(y) == 0xcoffe`e then the engine would need to recursively brute force which would take a very long time.  
+If there was multiple layers of inner expressions like `srand(srand(srand(x)+5)+10) == 0xcoffee` the engine would have to solve then we would have to rebuild the rand solving function to solve for each nested rand call before claiming to have found a full solution.  
+Any combination of these expressions blows up the problem and solve time exponentially. Trying to cover these is out of scope for this toy solver for this 1 specific CTF challenge. However the concept is there for more complex solves if we had a use case for it.  
+  
+</td>
+<td width="50%">
+
+```rust
+0x92: R.MOV.RI(0xC5), reg:A, imm:0x0
+0x97: S.LDB(0x10), 90(0x5A)
+0x9C: S.PUSHP(0x30), 8438(0x20F6)
+0xA1: S.LDB(0x10), 2(0x2)
+0xA6: S.SYSCALL(0xA0), fputs, Challenge 3 - Almost there! But can you predict the future?
+What number am I thinking of? (0x0)
+0xAB: R.SYSCALL(0x1), fscanf(0x0)
+0xAC: R.MOV.RR(0xC8), reg2:B, reg1:A
+0xAD: R.MOV.RI(0xC5), reg:A, imm:0x3
+0xB2: R.SYSCALL(0x1), srand(0x3)
+0xB3: R.MOV.RI(0xD5), reg:C, imm:0x0
+0xB8: R.CALL(0x60), 0x145
+0x145: R.MOV.RI(0xC5), reg:A, imm:0x133700
+0x14A: S.LDB(0x10), 4(0x4)
+0x14F: S.SYSCALL(0xA0), rand(0x4)(0x0)
+0x154: R.POP.R(0x16), reg:B
+0x155: R.XOR.RR(0x40), reg1:A, reg2:B
+0x157: R.PUSH.R(0x11), reg:A
+0x158: S.PUSHP(0x30), 4076008178(0xF2F2F2F2)
+0x15D: S.XORP(0x62), (0x0)
+0x162: R.POP.R(0x15), reg:A
+0x163: R.RET(0x61), 
+0xBD: R.PUSH.I(0x10), 0xFFFFFF
+0xC2: R.PUSH.R(0x11), reg:A
+0xC3: S.ANDP(0x63), (0x0)
+0xC8: S.PUSHP(0x30), 12648430(0xC0FFEE)
+0xCD: S.CMPP(0x80), (0x0)
+Brute forcing. This will take a while.
+Solution found: input_3_b0, 0x2
+Solution found: input_3_b1, 0xB6
+Solution found: input_3_b2, 0x4
+Solution found: input_3_b3, 0x3C
+// execution ended for convenience.
+```
+
+</td>
+</td>
+</table>
+
 # What Would Be Next
 
- A more automated system may have the reverser specifying the success and failure locations and letting some pre-emulation analysis engine build a tree which could specify the required condition at each conditional jump. Then when we reach that point, the dispatcher
-
- use z3 vars instead of SymVars
+If i had to continue this project i would start by trying to replace the SymVar's with z3's bitvecs. Having the higher level abstraction lets me convert to other symbex engines but the rust implementation is considerably slower and uses more ram. using z3's data types is way more efficient in its own and allows me to use z3's expression simplification.  
+  
+I would also like to see a more automated system may have the reverser specifying the success and failure locations and letting some pre-emulation analysis engine build a tree which could specify the required condition at each conditional jump to reach the success location. At each conditional jump, the tool would attempt to solve and take the jump.  
+  
+There is also some value in keeping the whole tool somewhat modular with the current breakpoint system.
+  

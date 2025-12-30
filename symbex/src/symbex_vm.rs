@@ -18,6 +18,9 @@ pub struct SymbolicContext {
     pub sp: usize,
     pub srand_seed: Option<SymVarVec>,
     pub rand_counter: u32,
+    state: [SymVarVec; 31],
+    fptr: usize,
+    rptr: usize,
 }
 
 impl SymbolicContext {
@@ -31,7 +34,10 @@ impl SymbolicContext {
             flags: SymVar::concrete(0),
             sp: 0xf00,
             srand_seed: None,
-            rand_counter: 0
+            rand_counter: 0,
+            state: std::array::from_fn(|_| SymVarVec::new(4)),
+            fptr: 3,
+            rptr: 0,
         }
     }
     pub fn set_reg(&mut self, offset: u8, value: SymVarVec) {

@@ -135,10 +135,10 @@ pub fn dispatcher(mapped_masm_sections: &MappedMasmSections, emu: bool) {
                         println!("No solution for 1");
                     }
                 },
-                0x77 => {
+                /*0x77 => {
                     // force the input the be smaller. this is unnecessary but convenient.
                     context.set_reg(context.reg_value('C'),SymVarVec::concrete_u32(0x4));
-                }
+                }*/
                 0x8D => {
                     if let Some(solutions) = context.flags.try_solve() {
                         print_solutions(solutions);
