@@ -159,10 +159,6 @@ The emulation mode also provides dereferencing of strings and syscall numbers si
 
 ***linear disassembly***
 ```rust
-Read in 757 bytes from ../crackme.masm
-section type:1, section addr:19, section size: 357
-section type:2, section addr:376, section size: 336
-section type:3, section addr:712, section size: 45
 0x0: S.LDB(0x10), 75(0x4B)
 0x5: S.PUSHP(0x30), 8192(0x2000)
 0xA: S.LDB(0x10), 2(0x2)
@@ -262,10 +258,6 @@ section type:3, section addr:712, section size: 45
 
 ***emu trace with solving***
 ```rust
-Read in 757 bytes from ../crackme.masm
-section type:1, section addr:19, section size: 357
-section type:2, section addr:376, section size: 336
-section type:3, section addr:712, section size: 45
 0x0: S.LDB(0x10), 75(0x4B)
 0x5: S.PUSHP(0x30), 8192(0x2000)
 0xA: S.LDB(0x10), 2(0x2)
@@ -414,12 +406,16 @@ The output shows each byte value individually. Inputing this value back into the
 0x0: S.LDB(0x10), 75(0x4B)
 0x5: S.PUSHP(0x30), 8192(0x2000)
 0xA: S.LDB(0x10), 2(0x2)
-0xF: S.SYSCALL(0xA0), fputs, Welcome to the multiarch of madness! Let's see how well you understand it.
+0xF: S.SYSCALL(0xA0), fputs,
+Welcome to the multiarch of madness!
+Let's see how well you understand it.
 (0x0)
 0x14: S.LDB(0x10), 43(0x2B)
 0x19: S.PUSHP(0x30), 8365(0x20AD)
 0x1E: S.LDB(0x10), 2(0x2)
-0x23: S.SYSCALL(0xA0), fputs, Challenge 1 - What's your favorite number? (0x0)
+0x23: S.SYSCALL(0xA0), fputs,
+Challenge 1 -
+What's your favorite number? (0x0)
 0x28: S.LDB(0x10), 0(0x0)
 0x2D: S.SYSCALL(0xA0), fscanf(0x0)
 0x32: S.LDW(0x20), 4919(0x1337)
@@ -451,7 +447,8 @@ Challenge 2 was a slightly more complicated hashing algorithm. Luckily the hashi
 ```rust
 accumulator = 0;
 for i in (0..0x20).step_by(4) {
-    val = (0xCAFEBABE * input[i..i+4]) >> 0x20;
+    val = (0xCAFEBABE * input[i..i+4]);
+    val = val >> 0x20;
     accumulator = val ^ accumulator;
 }
 if(xor_result==0x7331) {
@@ -470,7 +467,8 @@ In short, i have a [SymbolicContext.stack](symbex/src/symbex_engine.rs#L26) that
 0x5A: R.MOV.RI(0xC5), reg:A, imm:0x2
 0x5F: R.MOV.RI(0xCD), reg:B, imm:0x20D8
 0x64: R.MOV.RI(0xD5), reg:C, imm:0x1E
-0x69: R.SYSCALL(0x1), fputs(0x2), Challenge 2 - Tell me a joke: 
+0x69: R.SYSCALL(0x1), fputs(0x2),
+ Challenge 2 - Tell me a joke: 
 0x6A: R.SUB.SI(0x31), imm:0x20
 0x70: R.MOV.RS(0xCE), reg:B
 0x71: R.PUSH.R(0x12), reg:B
@@ -562,9 +560,11 @@ for i in 0..10 {
     let rand1 = rand() & 0xffff;
     let rand2 = rand() << 0x10;
     let fullrand = rand1 | rand2;
-    let value = (fullrand ^ 0x133700 ^ 0xf2f2f2f2) & 0xffffff
+    let value = 
+      (fullrand ^ 0x133700 ^ 0xf2f2f2f2)
+        & 0xffffff
     if value == 0xc0ffee {
-      correct
+      //correct
     }
 }
 ```
@@ -596,7 +596,9 @@ Any combination of these expressions blows up the problem and solve time exponen
 0x97: S.LDB(0x10), 90(0x5A)
 0x9C: S.PUSHP(0x30), 8438(0x20F6)
 0xA1: S.LDB(0x10), 2(0x2)
-0xA6: S.SYSCALL(0xA0), fputs, Challenge 3 - Almost there! But can you predict the future?
+0xA6: S.SYSCALL(0xA0), fputs,
+Challenge 3 - 
+Almost there! But can you predict the future?
 What number am I thinking of? (0x0)
 0xAB: R.SYSCALL(0x1), fscanf(0x0)
 0xAC: R.MOV.RR(0xC8), reg2:B, reg1:A
