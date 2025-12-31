@@ -145,7 +145,7 @@ The `ADD.RR` instruction and some others decode their register operands like `((
 
 `ADD.RI`, `XOR.RR`, and some registers in other instructions decode their registers like `(((reg_param >> 4) - 1) << 2)` and `(((reg_param & 0xf) - 1) << 2)`. Missing the `& 3` bitmasking means its possible to corrupt the heap tracking values in the `vm_context` structure.
 
-The `SUB.RR`, `SUB.RI` and `XOR.RI` instructions all decode registers like `(((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb)` where the resulting value is added to the base of the vm_context struct.  
+The `SUB.RR`, `SUB.RI` and `XOR.RI` instructions all decode registers like `(((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb)` where the resulting value is added to the base of the vm_context struct rather than the offset to the `A` register within the vm_context struct.  
 `SUB.RI` ensures the value calculated by `(reg_param >> 4) - 1` is <= 3. So this instruction ensures no corruption, but this is the only one.
 
 Others have written about exploiting this bug in `XOR.RI` to corrupt the heap tracking data to solve the pwn challenge `multiarch-2`. This is beyond the scope of this project though.  
