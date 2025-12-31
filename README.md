@@ -2,7 +2,7 @@
 - [The Challenge](#challenge)
 - [The VM](#the-vm)
   - [Stack Instruction Set](#stack-vm)
-  - [Register Instruction Set](#register-vm)
+  - [Register Instruction Set](#reg-vm)
 - [The Symbex VM](#symbex-vm)
   - [Challenge 1](#challenge-1)
   - [Challenge 2](#challenge-2)
