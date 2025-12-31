@@ -39,10 +39,10 @@ struct vm_context __packed
     uint8_t eflags;
     uint32_t pc;                    // program counter
     uint32_t sp;                    // stack pointer
-    uint32_t a;
-    uint32_t b;
-    uint32_t c;
-    uint32_t d;
+    uint32_t A;                     // A register
+    uint32_t B;                     // B register
+    uint32_t C;                     // C register
+    uint32_t D;                     // D register
 };
 ```
 *vm_context structure*
@@ -99,10 +99,56 @@ The only weirdness in the stack machine is that some operations support pushing 
 
 
 # Reg VM
-The reg VM instruction set is much more complicated, with some inconsistent encodings between the different types of instructions.
-
-TODO
+The reg VM instruction set is much more complicated, with some inconsistent encodings between the different types of instructions. The instructions are also not a consistent size in the encoding like the stack vm. I represent instructions as ranges in the below descriptions, but not all values in a range are supported. The ranges are just my best effort to simplify the explanations.  
   
+dereference modifier:
+Anything in the `0xA0 - 0xAf` range is an instruction modifier. The only part of this range that is actually used is the `0xA1 - 0xA3` and `0xA5 - 0xA7` ranges. Any value in these ranges tells the decoder that the first parameter needs to be dereferenced. The value itself is not used in the operation.  
+  
+`MOV`:  
+The whole `0xc0 - 0xff` range (>0b11000000) is reserved for  `MOV` operation  
+The graphic below shows how each bit is used in the `MOV` opcode.  
+  
+  * 7 - `MOV` operation
+  * 6 - `MOV` operation
+  * 5 - 2nd parameter type. 0 for register, 1 for pointer
+  * 3 and 4 - offset into register table. unused for pointer
+  * 2 - 1st parameter type. 0 for register, 1 for pointer, immediate, or stack pointer
+  * 0 and 1 - offset into register table. 00 for pointer, 01 for immediate, 10 for stack pointer
+  
+The 2nd parameter is easy since it can only be a register or a pointer. The 5th bit specifies register vs pointer, and the 3rd and 4th bits are used to reference which register.  
+The 1st parameter can be a register, pointer, immediate, or stack pointer. The 3rd bit is set to 0 for a register, and 1 for the other 3 options. When its a register, the 0th and 1st bits are used specify which register. otherwise those bits are used to further specify whether the 1st parameter is a pointer, immediate, or stack pointer. The value for the operand for the pointer and immediate operand types are pulled from next 4 bytes in the instruction.
+  
+`PUSH.R`, `POP.R`:  
+The decoding of `PUSH` and `POP` instructions are kind of crazy and depend on interger underflow to correctly decode, but the ranges are still pretty clean.  
+  
+  * `0x10 - 0x14` for `PUSH` instructions
+  * `0x15 - 0x18` for `POP` instructions
+  
+`0x10` specifies a `PUSH.I` push immediate instruction where the immediate is the next 4 bytes in the instruction.
+`0x11 - 0x14` is the range for `PUSH.R` push register instruction where the lower bits in the encoding are used to specify which register to push from.  
+`0x15 - 0x18` specifies a `POP.R` pop register instruction where the lower bits in the encoding are used to specify which register to pop to.  
+
+Other:  
+  * `0x0 - 0x0f` - Syscalls
+  * `0x70 - 0x7f` - `CMP.RR` operation. The register operands are encoded in the lower 4 bits similar to the MOV operation
+  * `0x80 - 0x8f` - `CMP.RI` operation. The immediate is stored in the rest of the instruction and the register is stored in the lower bits of the opcode like the other instructions.
+  * `0x60 - 0x6f` - Control flow operations like `CALL`, `RET`, `JMP`, `JE`, and `JNE`. Operands taken from the stack or from the rest of the instruction
+  
+Math instructions:  
+The math instructions are specifically different because don't encode their register operands in the opcode. The instruction includes another byte which encodes the registers for the first and second operand. Each instruction encodes its operands different in this operand byte.
+  * `0x20 - 0x21` - `ADD.RR` and `ADD.RI`
+  * `0x30 - 0x31` - `SUB.RR` and `SUB.RI`
+  * `0x40 - 0x41` - `XOR.RR` and `XOR.RI`
+  * `0x50 - 0x51` - `MUL.RR` and `MUL.RI`
+
+The `ADD.RR` instruction and some others decode their register operands like `((((reg_param >> 4) - 1) & 3) << 2)` and `(((reg_param - 1) & 3) << 2)`. The resulting value is added to the location of the `A` register. The `& 3` bitmasking forces the value to be small enough that we don't overflow the pointer past the register offsets. There is more in the `vm_context` than i have shown above. The instantiation of this struct is 0x88 in size. The rest of the structure appears to be related to tracking heap allocations.  
+
+`ADD.RI`, `XOR.RR`, and some registers in other instructions decode their registers like `(((reg_param >> 4) - 1) << 2)` and `(((reg_param & 0xf) - 1) << 2)`. Missing the `& 3` bitmasking means its possible to corrupt the heap tracking values in the `vm_context` structure.
+
+The `SUB.RR`, `SUB.RI` and `XOR.RI` instructions all decode registers like `(((((reg_param >> 4) - 1) + 0xc) << 2) + 0xb)` where the resulting value is added to the base of the vm_context struct.  
+`SUB.RI` ensures the value calculated by `(reg_param >> 4) - 1` is <= 3. So this instruction ensures no corruption, but this is the only one.
+
+Others have written about exploiting this bug in `XOR.RI` to corrupt the heap tracking data to solve the pwn challenge `multiarch-2`. This is beyond the scope of this project though.  
   
 # Symbex VM
 The structure for the disassembler matches the structure in the challenge VM quite closely with the only difference being the challenge VM is just a VM, and mine is on top of a symbex engine.
@@ -379,7 +425,7 @@ The [SymVarVec](symbex/src/symbex_engine.rs#L583) type is a Vec<SymVar>. In a `S
 <tr valign="top">
 <td width="50%">
 
-Challenge 1 is a simple mathematical equation so it is a good first test for the symbex engine.  
+Challenge 1 is a simple equation so it is a good first test for the symbex engine.  
 ```rust
 0xAAAAAAAA = input + (0x13370539 ^ 0x08675309)
 ```
@@ -393,11 +439,10 @@ I settled on a pseudo breakpoint system [breakpoints](solver/src/dispatcher.rs#L
   
 For the purpose of solving for the challenge conditions, each conditional jump which may lead to the failure condition(`0x10b`) first calls the `CMPP` operation to set the flags register before calling the conditional jump. In the challenge VM, this flags register appears to store whether the subtract operation(typical compare operation) had an  equal result `0b001`, overflowed negative `0b110`, or was unequal and not negative `0b100`. The symbex VM only supports an `==` or `!=` result with no regard for negatives because it doesn't appear to be used in the crackme.  
   
-Solving after the `CMPP` operation was as simple as calling the [SymVar::try_solve()](symbex/src/symbex_engine.rs#L62) method on the `SymVar` stored in the [SymbolicContext.flags](symbex/src/symbex_engine.rs#L62) register. `try_solve` simply converts the `SymVar` variables to z3 variables, assigns the constraints, then lets z3 solve and get a model which satisfies the constraints.  
+Solving after the `CMPP` operation was as simple as calling the [SymVar::try_solve()](symbex/src/symbex_engine.rs#L62) method on the `SymVar` stored in the [SymbolicContext.flags](solver/src/dispatcher.rs#L131) register. `try_solve` simply converts the `SymVar` variables to z3 variables, assigns the constraints, then lets z3 solve and get a model which satisfies the constraints.  
   
-The output shows each byte value individually. Inputing this value back into the challenge would be as simple as concattenating the bytes Big Endian and converting to decimal to be entered in the command line
-
-
+The output shows each byte value individually. Inputing this value back into the challenge would be as simple as concattenating the bytes Big Endian and converting to decimal to be entered in the command line.
+  
 </td>
 <td width="50%">
 
@@ -459,6 +504,8 @@ The example above uses an iterator for the loop but the crackme code uses pointe
 
 In short, i have a [SymbolicContext.stack](symbex/src/symbex_engine.rs#L26) that gets instantiated to a large size. Most of the values will be 0 and unused. Then there is the [SymbolicContext.sp](symbex/src/symbex_engine.rs#L32) that gets instantiated to the same value that the stack pointer in the challenge VM gets instantiated to. All of this allows pointer arithmetic and proper stack growth. I was able to solve the first challenge with a stack that was just a 0 length `SymVarVec` that grew up rather than down, and pushed and popped values as needed. This challenge required me to remove pushing and popping and abstract those operations through the [SymVarVec::assign](symbex/src/symbex_engine.rs#L747) operation. So the symbex vm doesn't push and pop to the Vec like Vec.push() supports, it now assigns values up to a specified length to the prebuilt stack, and decrements the stack pointer.  
   
+Once i had this stack issue figured out and ensured the instructions performed properly, the challenge solved without issue.
+
 </td>
 <td width="50%">
 
@@ -552,7 +599,7 @@ The challenge VM would fail randomly if the data after the input was non-determi
 <table>
 <tr valign="top">
 <td width="50%">
-Challenge 3 would be a simple algorithm if not for the rand calls. Below is the code showing the algorithm
+Challenge 3 would be a simple algorithm if not for the rand calls. Below is the code showing the algorithm.
 
 ```rust
 srand(input)
@@ -583,7 +630,7 @@ The engine needs to
 Brute forcing is of course very slow so [multithreading](symbex/src/symbex_engine.rs#L229) the issue becomes necessary. With 14 threads, this stage of the challenge takes about 30 minutes to solve. Could be worse overall.  
   
 The current implementation works well for this specific challenge where there is only 1 seed, but isn't set up for more complex expresions.  
-If there was more symbolic seeds like `srand(x) + srand(y) == 0xcoffe`e then the engine would need to recursively brute force which would take a very long time.  
+If there was more symbolic seeds like `srand(x) + srand(y) == 0xcoffee` then the engine would need to recursively brute force which would take a very long time.  
 If there was multiple layers of inner expressions like `srand(srand(srand(x)+5)+10) == 0xcoffee` the engine would have to solve then we would have to rebuild the rand solving function to solve for each nested rand call before claiming to have found a full solution.  
 Any combination of these expressions blows up the problem and solve time exponentially. Trying to cover these is out of scope for this toy solver for this 1 specific CTF challenge. However the concept is there for more complex solves if we had a use case for it.  
   
@@ -637,7 +684,6 @@ Solution found: input_3_b3, 0x3C
 
 If i had to continue this project i would start by trying to replace the SymVar's with z3's bitvecs. Having the higher level abstraction lets me convert to other symbex engines but the rust implementation is considerably slower and uses more ram. using z3's data types is way more efficient in its own and allows me to use z3's expression simplification.  
   
-I would also like to see a more automated system may have the reverser specifying the success and failure locations and letting some pre-emulation analysis engine build a tree which could specify the required condition at each conditional jump to reach the success location. At each conditional jump, the tool would attempt to solve and take the jump.  
+I would also like to see a more automated system may have the reverser specifying the success and failure locations and letting some pre-emulation analysis engine build a tree which could specify the required condition at each conditional jump to reach the success location. At each conditional jump, the tool would attempt to solve and take the jump. There is also some value in keeping the whole tool somewhat modular with the current breakpoint system.
   
-There is also some value in keeping the whole tool somewhat modular with the current breakpoint system.
-  
+Not all the instructions are implemented perfectly especially in the reg_decoder. I make the assumption that all pointers go to the stack but there appears to be heap support as well that the crackme just doesn't use. Some instructions are not fully implemented because the crackme simply doesn't use them.

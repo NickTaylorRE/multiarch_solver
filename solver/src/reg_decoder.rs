@@ -17,18 +17,20 @@ fn read_string(data: &Vec<u8>, loc: &usize, size: usize) -> String {
 
 pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader, context: &mut SymbolicContext, data_section: &Vec<u8>, emu: &bool) {
     let mut mnemonic: String = "R.UNKNOWN".to_string();
-    let mut argument: String = "R.UNKNOWN".to_string();
+    let mut argument: String = "".to_string();
     let mut pc_update: usize = 5;
 
     let instruction_location = regvm_instruction_reader.current_position();
 
     let mut opcode: u8 = regvm_instruction_reader.read_byte();
     let mut modifier_nibble:u8 = 0;
+    let mut modifier = 0;
 
     if opcode >= 0xa0 && opcode <= 0xaf {
         // modifier instruction
         // opcode = next opcode
         // store modifier nibble
+        modifier = opcode;
         modifier_nibble = opcode & 0x0f;
         opcode = regvm_instruction_reader.read_byte();
     }
@@ -45,7 +47,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 // VM: dereference value that was loaded into VM variable
                 // we cover this functionality in the instructions themselves
             }
-            if (modifier_nibble >> 2) > 0 {
+            if (modifier_nibble >> 2) < 4 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
                     mnemonic = "R.MOV.RRm".to_string();
@@ -82,16 +84,16 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
                 argument = format!("reg2:{}, reg1:{}", context.reg_name(reg_num2), context.reg_name(reg_num1));
                 if *emu {
                     let mut reg1_value = context.get_reg(reg_num1);
-                    if (modifier_nibble & 3) > 0 {
+                    /*if (modifier_nibble & 3) > 0 {
                         reg1_value = context.getp((reg1_value).try_concrete_u32().expect("could not concrete to u32 in modifier") as usize);
-                    }
+                    }*/
                     context.set_reg(reg_num2, reg1_value);
                 }
             }
         } else if opcode_nibble == 4 { //b0100
             // first parameter is a immediate pointer in the instruction to dereference
             // modifier_nibble & 3 cannot be set
-            if (modifier_nibble >> 2) > 0 {
+            if (modifier_nibble >> 2) < 4 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
                     mnemonic = "R.MOV.RPm".to_string();
@@ -119,7 +121,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         } else if opcode_nibble == 5 { //b0101
             // first parameter is an immediate
             // modifier_nibble & 3 cannot be set
-            if (modifier_nibble >> 2) > 0 {
+            if (modifier_nibble >> 2) < 4 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
                     mnemonic = "R.MOV.RIm".to_string();
@@ -157,7 +159,7 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
             // so i'm going to say that a pointer is an index to a location to the stack and that
             // the SP == stack.len()
             // we'll see how that goes.
-            if (modifier_nibble >> 2) > 0 {
+            if (modifier_nibble >> 2) < 4 {
                 if (opcode & 0x20) == 0 { //opcode & 0x20
                     // second parameter is register to store value into
                     mnemonic = "R.MOV.RSm".to_string();
@@ -382,5 +384,10 @@ pub fn regvm_disassembler(regvm_instruction_reader: &mut RegvmInstructionReader,
         argument = format!("{} dereferenced",argument);
     }
 
-    println!("{:#X}: {}({:#X}), {}", instruction_location, mnemonic, opcode, argument);
+    if modifier > 0 {
+        println!("{:#X}: {}({:#X} {:#X}), {}", instruction_location, mnemonic, modifier, opcode, argument);
+    }
+    else {
+        println!("{:#X}: {}({:#X}), {}", instruction_location, mnemonic, opcode, argument);
+    }
 }
