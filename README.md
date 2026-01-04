@@ -116,7 +116,7 @@ The graphic below shows how each bit is used in the `MOV` opcode.
   * 0 and 1 - offset into register table. 00 for pointer, 01 for immediate, 10 for stack pointer
   
 The 2nd parameter is easy since it can only be a register or a pointer. The 5th bit specifies register vs pointer, and the 3rd and 4th bits are used to reference which register.  
-The 1st parameter can be a register, pointer, immediate, or stack pointer. The 3rd bit is set to 0 for a register, and 1 for the other 3 options. When its a register, the 0th and 1st bits are used specify which register. otherwise those bits are used to further specify whether the 1st parameter is a pointer, immediate, or stack pointer. The value for the operand for the pointer and immediate operand types are pulled from next 4 bytes in the instruction.
+The 1st parameter can be a register, pointer, immediate, or stack pointer. The 2nd bit is set to 0 for a register, and 1 for the other 3 options. When its a register, the 0th and 1st bits are used specify which register. otherwise those bits are used to further specify whether the 1st parameter is a pointer, immediate, or stack pointer. The value for the operand for the pointer and immediate operand types are pulled from next 4 bytes in the instruction.
   
 `PUSH.R`, `POP.R`:  
 The decoding of `PUSH` and `POP` instructions are kind of crazy and depend on interger underflow to correctly decode, but the ranges are still pretty clean.  
